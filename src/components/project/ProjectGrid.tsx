@@ -42,6 +42,26 @@ interface ProjectRow {
   updated_at?: string;
 }
 
+interface ProjectColumn {
+  id: string;
+  project_id: string;
+  column_key: string;
+  column_label: string;
+  column_type: string;
+  column_width: string;
+  column_order: number;
+  is_system_column: boolean;
+  is_calculated: boolean;
+}
+
+interface RolePermission {
+  id: string;
+  role_name: string;
+  project_id: string;
+  column_key: string;
+  permission_level: 'none' | 'view' | 'edit';
+}
+
 interface ProjectGridProps {
   project: Project;
   onBack: () => void;
@@ -50,6 +70,9 @@ interface ProjectGridProps {
 
 const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
   const [rows, setRows] = useState<ProjectRow[]>([]);
+  const [columns, setColumns] = useState<ProjectColumn[]>([]);
+  const [permissions, setPermissions] = useState<RolePermission[]>([]);
+  const [currentUserRole, setCurrentUserRole] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [editingRow, setEditingRow] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -77,20 +100,61 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
     vlr_total_venda: 0,
   };
 
-  const columns = [
-    { key: 'descricao', label: 'DESCRIÇÃO', type: 'text', width: '200px' },
-    { key: 'qtd', label: 'QTD', type: 'number', width: '80px' },
-    { key: 'unidade', label: 'UNIDADE', type: 'text', width: '80px' },
-    { key: 'mat_uni_pr', label: 'MAT UNI - PR (R$)', type: 'currency', width: '120px' },
-    { key: 'desconto', label: 'Desconto (%)', type: 'percentage', width: '100px' },
-    { key: 'cc_mat_uni', label: 'CC MAT UNI (R$)', type: 'currency', width: '120px' },
-    { key: 'cc_mat_total', label: 'CC MAT TOTAL (R$)', type: 'currency', width: '130px', calculated: true },
-    { key: 'cc_mo_uni', label: 'CC MO UNI (R$)', type: 'currency', width: '120px' },
-    { key: 'cc_mo_total', label: 'CC MO TOTAL (R$)', type: 'currency', width: '130px', calculated: true },
-    { key: 'ipi', label: 'IPI (R$)', type: 'currency', width: '90px' },
-    { key: 'vlr_total_estimado', label: 'VLR. TOTAL ESTIMADO', type: 'currency', width: '150px', calculated: true },
-    { key: 'vlr_total_venda', label: 'VLR. TOTAL VENDA', type: 'currency', width: '150px', calculated: true },
-  ];
+  // Carregamento de dados completo
+  const loadProjectData = async () => {
+    try {
+      // Carregar colunas do projeto
+      const { data: columnsData, error: columnsError } = await supabase
+        .from('project_columns')
+        .select('*')
+        .eq('project_id', project.id)
+        .order('column_order');
+
+      if (columnsError) throw columnsError;
+
+      // Carregar permissões para este projeto
+      const { data: permissionsData, error: permissionsError } = await supabase
+        .from('role_column_permissions')
+        .select('*')
+        .eq('project_id', project.id);
+
+      if (permissionsError) throw permissionsError;
+
+      // Obter o role atual do usuário no contexto do projeto
+      const { data: userAuth } = await supabase.auth.getUser();
+      if (userAuth.user) {
+        const { data: userRoleData } = await supabase
+          .from('user_project_roles')
+          .select('role_name')
+          .eq('user_id', userAuth.user.id)
+          .eq('project_id', project.id)
+          .maybeSingle();
+
+        // Se não há role específica no projeto, usar role do perfil
+        if (!userRoleData) {
+          const { data: profileData } = await supabase
+            .from('profiles')
+            .select('role')
+            .eq('user_id', userAuth.user.id)
+            .single();
+          
+          setCurrentUserRole(profileData?.role || userRole);
+        } else {
+          setCurrentUserRole(userRoleData.role_name);
+        }
+      }
+
+      setColumns(columnsData || []);
+      setPermissions(permissionsData || []);
+    } catch (error) {
+      console.error('Error loading project data:', error);
+      toast({
+        title: "Erro ao carregar configurações",
+        description: "Não foi possível carregar as configurações do projeto",
+        variant: "destructive",
+      });
+    }
+  };
 
   const fetchRows = async () => {
     try {
@@ -124,6 +188,7 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
   };
 
   useEffect(() => {
+    loadProjectData();
     fetchRows();
   }, [project.id]);
 
@@ -145,8 +210,36 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
     };
   };
 
+  // Função para obter nível de permissão de uma coluna
+  const getPermissionLevel = (columnKey: string): 'none' | 'view' | 'edit' => {
+    // Admin sempre tem acesso total
+    if (currentUserRole === 'admin') return 'edit';
+    
+    const permission = permissions.find(p => 
+      p.role_name === currentUserRole && p.column_key === columnKey
+    );
+    
+    return permission?.permission_level || 'view';
+  };
+
+  // Função para verificar se pode editar uma coluna
+  const canEditColumn = (columnKey: string): boolean => {
+    return getPermissionLevel(columnKey) === 'edit';
+  };
+
+  // Função para verificar se pode ver uma coluna
+  const canViewColumn = (columnKey: string): boolean => {
+    const level = getPermissionLevel(columnKey);
+    return level === 'view' || level === 'edit';
+  };
+
+  // Função para verificar se pode executar operações CRUD
+  const canPerformCRUD = (): boolean => {
+    return currentUserRole === 'admin';
+  };
+
   const handleAddRow = async () => {
-    if (userRole !== 'admin') {
+    if (!canPerformCRUD()) {
       toast({
         title: "Acesso negado",
         description: "Apenas administradores podem adicionar linhas",
@@ -197,10 +290,11 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
   };
 
   const handleUpdateRow = async (rowId: string, updates: Partial<ProjectRow>) => {
-    if (userRole !== 'admin') {
+    // Para updates de linha, verificar se tem permissão geral de CRUD
+    if (!canPerformCRUD()) {
       toast({
         title: "Acesso negado",
-        description: "Apenas administradores podem editar dados",
+        description: "Você não tem permissão para editar dados",
         variant: "destructive",
       });
       return;
@@ -243,10 +337,10 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
   };
 
   const handleDeleteRow = async (rowId: string) => {
-    if (userRole !== 'admin') {
+    if (!canPerformCRUD()) {
       toast({
         title: "Acesso negado",
-        description: "Apenas administradores podem deletar linhas",
+        description: "Você não tem permissão para deletar linhas",
         variant: "destructive",
       });
       return;
@@ -310,6 +404,9 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
     row.descricao.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  // Filtrar colunas visíveis baseado nas permissões
+  const visibleColumns = columns.filter(column => canViewColumn(column.column_key));
+
   const totals = filteredRows.reduce((acc, row) => ({
     cc_mat_total: acc.cc_mat_total + (row.cc_mat_total || 0),
     cc_mo_total: acc.cc_mo_total + (row.cc_mo_total || 0),
@@ -347,7 +444,7 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
                 />
               </div>
               
-              {userRole === 'admin' && (
+              {canPerformCRUD() && (
                 <Button onClick={handleAddRow}>
                   <Plus className="h-4 w-4 mr-2" />
                   Nova Linha
@@ -402,19 +499,19 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
                 <div className="min-w-max">
                   {/* Header */}
                   <div className="flex bg-gray-50 border-b border-gray-200 sticky top-0">
-                    {userRole === 'admin' && (
+                    {canPerformCRUD() && (
                       <div className="w-20 p-3 border-r border-gray-200 font-medium text-sm text-gray-700">
                         Ações
                       </div>
                     )}
-                    {columns.map((column) => (
+                    {visibleColumns.map((column) => (
                       <div 
-                        key={column.key}
+                        key={column.column_key}
                         className="p-3 border-r border-gray-200 font-medium text-sm text-gray-700"
-                        style={{ width: column.width, minWidth: column.width }}
+                        style={{ width: column.column_width, minWidth: column.column_width }}
                       >
-                        {column.label}
-                        {column.calculated && (
+                        {column.column_label}
+                        {column.is_calculated && (
                           <span className="ml-1 text-xs text-blue-600">*</span>
                         )}
                       </div>
@@ -429,7 +526,7 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
                   ) : (
                     filteredRows.map((row, index) => (
                       <div key={row.id} className={`flex hover:bg-gray-50 ${index % 2 === 0 ? 'bg-white' : 'bg-gray-25'}`}>
-                        {userRole === 'admin' && (
+                        {canPerformCRUD() && (
                           <div className="w-20 p-2 border-r border-gray-200 flex space-x-1">
                             {editingRow === row.id ? (
                               <Button
@@ -458,28 +555,28 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
                             </Button>
                           </div>
                         )}
-                        {columns.map((column) => (
+                        {visibleColumns.map((column) => (
                           <div 
-                            key={column.key}
+                            key={column.column_key}
                             className="p-2 border-r border-gray-200"
-                            style={{ width: column.width, minWidth: column.width }}
+                            style={{ width: column.column_width, minWidth: column.column_width }}
                           >
-                            {editingRow === row.id && !column.calculated && userRole === 'admin' ? (
+                            {editingRow === row.id && !column.is_calculated && canEditColumn(column.column_key) ? (
                               <Input
-                                type={column.type === 'number' || column.type === 'currency' || column.type === 'percentage' ? 'number' : 'text'}
-                                value={row[column.key as keyof ProjectRow] || ''}
+                                type={column.column_type === 'number' || column.column_type === 'currency' || column.column_type === 'percentage' ? 'number' : 'text'}
+                                value={row[column.column_key as keyof ProjectRow] || ''}
                                 onChange={(e) => {
-                                  const value = column.type === 'number' || column.type === 'currency' || column.type === 'percentage' 
+                                  const value = column.column_type === 'number' || column.column_type === 'currency' || column.column_type === 'percentage' 
                                     ? Number(e.target.value) || 0
                                     : e.target.value;
-                                  handleUpdateRow(row.id, { [column.key]: value });
+                                  handleUpdateRow(row.id, { [column.column_key]: value });
                                 }}
                                 className="h-8 text-sm"
-                                step={column.type === 'currency' ? '0.01' : column.type === 'percentage' ? '0.1' : '1'}
+                                step={column.column_type === 'currency' ? '0.01' : column.column_type === 'percentage' ? '0.1' : '1'}
                               />
                             ) : (
-                              <span className={`text-sm ${column.calculated ? 'font-medium text-blue-600' : ''}`}>
-                                {formatValue(row[column.key as keyof ProjectRow], column.type)}
+                              <span className={`text-sm ${column.is_calculated ? 'font-medium text-blue-600' : ''}`}>
+                                {formatValue(row[column.column_key as keyof ProjectRow], column.column_type)}
                               </span>
                             )}
                           </div>
