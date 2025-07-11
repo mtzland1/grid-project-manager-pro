@@ -84,10 +84,13 @@ export const useUserPermissions = (projectId?: string) => {
         }
       }
 
+      // Determinar se pode editar baseado nas permissões de coluna
+      const hasEditPermission = isAdmin || Object.values(columnPermissions).some(p => p === 'edit');
+
       setPermissions({
         role: userRole,
         projectRole,
-        canEdit: isAdmin,
+        canEdit: hasEditPermission,
         canDelete: isAdmin,
         canCreate: isAdmin,
         columnPermissions
