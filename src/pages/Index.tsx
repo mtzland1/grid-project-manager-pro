@@ -30,8 +30,8 @@ const Index = () => {
               const { data: profile, error } = await supabase
                 .from('profiles')
                 .select('role')
-                .eq('id', session.user.id)
-                .single();
+                .eq('user_id', session.user.id)
+                .maybeSingle();
               
               if (error) {
                 console.error('Error fetching user profile:', error);
@@ -63,8 +63,8 @@ const Index = () => {
             const { data: profile, error } = await supabase
               .from('profiles')
               .select('role')
-              .eq('id', session.user.id)
-              .single();
+              .eq('user_id', session.user.id)
+              .maybeSingle();
             
             if (error) {
               console.error('Error fetching user profile:', error);

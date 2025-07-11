@@ -14,7 +14,140 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      profiles: {
+        Row: {
+          created_at: string
+          id: string
+          role: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          role?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          role?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      project_items: {
+        Row: {
+          cc_encargos_valor: number
+          cc_icms_pr: number
+          cc_icms_revenda: number
+          cc_lucro_porcentagem: number
+          cc_lucro_valor: number
+          cc_mat_total: number
+          cc_mat_uni: number
+          cc_mo_total: number
+          cc_mo_uni: number
+          cc_pis_cofins: number
+          cc_total: number
+          created_at: string
+          desconto: number
+          descricao: string
+          id: string
+          ipi: number
+          mat_uni_pr: number
+          project_id: string
+          qtd: number
+          unidade: string
+          updated_at: string
+          vlr_total_estimado: number
+          vlr_total_venda: number
+        }
+        Insert: {
+          cc_encargos_valor?: number
+          cc_icms_pr?: number
+          cc_icms_revenda?: number
+          cc_lucro_porcentagem?: number
+          cc_lucro_valor?: number
+          cc_mat_total?: number
+          cc_mat_uni?: number
+          cc_mo_total?: number
+          cc_mo_uni?: number
+          cc_pis_cofins?: number
+          cc_total?: number
+          created_at?: string
+          desconto?: number
+          descricao: string
+          id?: string
+          ipi?: number
+          mat_uni_pr?: number
+          project_id: string
+          qtd?: number
+          unidade?: string
+          updated_at?: string
+          vlr_total_estimado?: number
+          vlr_total_venda?: number
+        }
+        Update: {
+          cc_encargos_valor?: number
+          cc_icms_pr?: number
+          cc_icms_revenda?: number
+          cc_lucro_porcentagem?: number
+          cc_lucro_valor?: number
+          cc_mat_total?: number
+          cc_mat_uni?: number
+          cc_mo_total?: number
+          cc_mo_uni?: number
+          cc_pis_cofins?: number
+          cc_total?: number
+          created_at?: string
+          desconto?: number
+          descricao?: string
+          id?: string
+          ipi?: number
+          mat_uni_pr?: number
+          project_id?: string
+          qtd?: number
+          unidade?: string
+          updated_at?: string
+          vlr_total_estimado?: number
+          vlr_total_venda?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_items_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      projects: {
+        Row: {
+          created_at: string
+          created_by: string
+          id: string
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          id?: string
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          id?: string
+          name?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
