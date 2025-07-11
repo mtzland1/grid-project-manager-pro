@@ -29,16 +29,17 @@ interface ProjectRow {
   cc_mo_uni: number;
   cc_mo_total: number;
   ipi: number;
-  st: number;
-  pv_uni: number;
-  pv_total: number;
-  marca: string;
-  modelo: string;
-  distribuidor: string;
-  codigo: string;
-  observacoes: string;
-  vlr_unit_estimado: number;
+  cc_pis_cofins: number;
+  cc_icms_pr: number;
+  cc_icms_revenda: number;
+  cc_lucro_porcentagem: number;
+  cc_lucro_valor: number;
+  cc_encargos_valor: number;
+  cc_total: number;
   vlr_total_estimado: number;
+  vlr_total_venda: number;
+  created_at?: string;
+  updated_at?: string;
 }
 
 interface ProjectGridProps {
@@ -65,16 +66,15 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
     cc_mo_uni: 0,
     cc_mo_total: 0,
     ipi: 0,
-    st: 0,
-    pv_uni: 0,
-    pv_total: 0,
-    marca: '',
-    modelo: '',
-    distribuidor: '',
-    codigo: '',
-    observacoes: '',
-    vlr_unit_estimado: 0,
+    cc_pis_cofins: 0,
+    cc_icms_pr: 0,
+    cc_icms_revenda: 0,
+    cc_lucro_porcentagem: 0,
+    cc_lucro_valor: 0,
+    cc_encargos_valor: 0,
+    cc_total: 0,
     vlr_total_estimado: 0,
+    vlr_total_venda: 0,
   };
 
   const columns = [
@@ -88,22 +88,14 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
     { key: 'cc_mo_uni', label: 'CC MO UNI (R$)', type: 'currency', width: '120px' },
     { key: 'cc_mo_total', label: 'CC MO TOTAL (R$)', type: 'currency', width: '130px', calculated: true },
     { key: 'ipi', label: 'IPI (R$)', type: 'currency', width: '90px' },
-    { key: 'st', label: 'ST (R$)', type: 'currency', width: '90px' },
-    { key: 'pv_uni', label: 'PV UNI', type: 'currency', width: '100px' },
-    { key: 'pv_total', label: 'PV TOTAL', type: 'currency', width: '110px', calculated: true },
-    { key: 'marca', label: 'MARCA', type: 'text', width: '100px' },
-    { key: 'modelo', label: 'MODELO', type: 'text', width: '100px' },
-    { key: 'distribuidor', label: 'DISTRIBUIDOR', type: 'text', width: '120px' },
-    { key: 'codigo', label: 'CÓDIGO', type: 'text', width: '100px' },
-    { key: 'observacoes', label: 'OBSERVAÇÕES', type: 'text', width: '150px' },
-    { key: 'vlr_unit_estimado', label: 'VLR. UNIT ESTIMADO', type: 'currency', width: '140px' },
     { key: 'vlr_total_estimado', label: 'VLR. TOTAL ESTIMADO', type: 'currency', width: '150px', calculated: true },
+    { key: 'vlr_total_venda', label: 'VLR. TOTAL VENDA', type: 'currency', width: '150px', calculated: true },
   ];
 
   const fetchRows = async () => {
     try {
       const { data, error } = await supabase
-        .from('project_rows')
+        .from('project_items')
         .select('*')
         .eq('project_id', project.id)
         .order('created_at', { ascending: true });
@@ -141,8 +133,6 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
     const matUniPr = row.mat_uni_pr || 0;
     const desconto = row.desconto || 0;
     const ccMoUni = row.cc_mo_uni || 0;
-    const pvUni = row.pv_uni || 0;
-    const vlrUnitEstimado = row.vlr_unit_estimado || 0;
 
     // Calculate unit cost with discount
     const ccMatUni = matUniPr * (1 - desconto / 100);
@@ -152,8 +142,6 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
       cc_mat_uni: ccMatUni,
       cc_mat_total: ccMatUni * qtd,
       cc_mo_total: ccMoUni * qtd,
-      pv_total: pvUni * qtd,
-      vlr_total_estimado: vlrUnitEstimado * qtd,
     };
   };
 
@@ -174,10 +162,10 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
       };
 
       const { data, error } = await supabase
-        .from('project_rows')
+        .from('project_items')
         .insert([newRow])
         .select()
-        .single();
+        .maybeSingle();
 
       if (error) {
         console.error('Error adding row:', error);
@@ -189,8 +177,10 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
         return;
       }
 
-      setRows([...rows, calculateRow(data)]);
-      setEditingRow(data.id);
+      if (data) {
+        setRows([...rows, calculateRow(data)]);
+        setEditingRow(data.id);
+      }
       
       toast({
         title: "Linha adicionada!",
@@ -218,7 +208,7 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
 
     try {
       const { error } = await supabase
-        .from('project_rows')
+        .from('project_items')
         .update(updates)
         .eq('id', rowId);
 
@@ -268,7 +258,7 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
 
     try {
       const { error } = await supabase
-        .from('project_rows')
+        .from('project_items')
         .delete()
         .eq('id', rowId);
 
@@ -317,18 +307,15 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
   };
 
   const filteredRows = rows.filter(row =>
-    row.descricao.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    row.marca.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    row.modelo.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    row.codigo.toLowerCase().includes(searchTerm.toLowerCase())
+    row.descricao.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const totals = filteredRows.reduce((acc, row) => ({
     cc_mat_total: acc.cc_mat_total + (row.cc_mat_total || 0),
     cc_mo_total: acc.cc_mo_total + (row.cc_mo_total || 0),
-    pv_total: acc.pv_total + (row.pv_total || 0),
     vlr_total_estimado: acc.vlr_total_estimado + (row.vlr_total_estimado || 0),
-  }), { cc_mat_total: 0, cc_mo_total: 0, pv_total: 0, vlr_total_estimado: 0 });
+    vlr_total_venda: acc.vlr_total_venda + (row.vlr_total_venda || 0),
+  }), { cc_mat_total: 0, cc_mo_total: 0, vlr_total_estimado: 0, vlr_total_venda: 0 });
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-white">
@@ -392,15 +379,15 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
             </p>
           </div>
           <div className="text-center">
-            <p className="text-sm text-gray-600">Total Preço Venda</p>
+            <p className="text-sm text-gray-600">Total Estimado</p>
             <p className="text-lg font-semibold text-purple-600">
-              {formatValue(totals.pv_total, 'currency')}
+              {formatValue(totals.vlr_total_estimado, 'currency')}
             </p>
           </div>
           <div className="text-center">
-            <p className="text-sm text-gray-600">Total Estimado</p>
+            <p className="text-sm text-gray-600">Total Venda</p>
             <p className="text-lg font-semibold text-orange-600">
-              {formatValue(totals.vlr_total_estimado, 'currency')}
+              {formatValue(totals.vlr_total_venda, 'currency')}
             </p>
           </div>
         </div>
