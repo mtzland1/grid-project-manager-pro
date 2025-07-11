@@ -31,9 +31,17 @@ const CollaboratorDashboard = ({ user }: CollaboratorDashboardProps) => {
 
   const fetchProjects = async () => {
     try {
+      // Para colaboradores, buscar apenas projetos onde estão atribuídos
       const { data, error } = await supabase
         .from('projects')
-        .select('*')
+        .select(`
+          *,
+          user_project_roles!inner(
+            user_id,
+            role_name
+          )
+        `)
+        .eq('user_project_roles.user_id', user.id)
         .order('created_at', { ascending: false });
 
       if (error) {

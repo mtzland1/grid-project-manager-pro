@@ -65,38 +65,20 @@ const ProjectChat = ({ project }: ProjectChatProps) => {
     try {
       const { data, error } = await supabase
         .from('project_chat_messages')
-        .select('*')
+        .select(`
+          *,
+          user_emails!inner(email)
+        `)
         .eq('project_id', project.id)
         .order('created_at', { ascending: true });
 
       if (error) throw error;
 
-      // Buscar informações dos usuários para as mensagens
-      const messagesWithUsers = await Promise.all(
-        (data || []).map(async (msg) => {
-          let userDisplay = 'Usuário';
-          
-          if (msg.user_id === currentUserId) {
-            userDisplay = 'Você';
-          } else {
-            // Tentar buscar o email do usuário das profiles
-            const { data: profile } = await supabase
-              .from('profiles')
-              .select('user_id')
-              .eq('user_id', msg.user_id)
-              .single();
-            
-            if (profile) {
-              userDisplay = `Usuário ${msg.user_id.slice(-4)}`;
-            }
-          }
-          
-          return {
-            ...msg,
-            user_email: userDisplay
-          };
-        })
-      );
+      // Mapear mensagens com informações dos usuários
+      const messagesWithUsers = (data || []).map((msg: any) => ({
+        ...msg,
+        user_email: msg.user_id === currentUserId ? 'Você' : msg.user_emails?.email || `Usuário ${msg.user_id.slice(-4)}`
+      }));
 
       setMessages(messagesWithUsers);
     } catch (error) {
@@ -124,7 +106,23 @@ const ProjectChat = ({ project }: ProjectChatProps) => {
         },
         async (payload) => {
           const newMsg = payload.new as ChatMessage;
-          const userDisplay = newMsg.user_id === currentUserId ? 'Você' : `Usuário ${newMsg.user_id.slice(-4)}`;
+          
+          // Buscar email do usuário para mensagens em tempo real
+          let userDisplay = newMsg.user_id === currentUserId ? 'Você' : `Usuário ${newMsg.user_id.slice(-4)}`;
+          
+          try {
+            const { data: userInfo } = await supabase
+              .from('user_emails')
+              .select('email')
+              .eq('id', newMsg.user_id)
+              .single();
+            
+            if (userInfo && newMsg.user_id !== currentUserId) {
+              userDisplay = userInfo.email;
+            }
+          } catch (err) {
+            console.log('Could not fetch user email for real-time message');
+          }
           
           setMessages(prev => [...prev, {
             ...newMsg,
