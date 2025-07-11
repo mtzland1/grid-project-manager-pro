@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
@@ -41,6 +40,7 @@ interface ProjectRow {
   cc_total: number;
   vlr_total_estimado: number;
   vlr_total_venda: number;
+  distribuidor: string;
   created_at?: string;
   updated_at?: string;
 }
@@ -103,9 +103,9 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
     cc_total: 0,
     vlr_total_estimado: 0,
     vlr_total_venda: 0,
+    distribuidor: '',
   };
 
-  // Carregamento de dados simplificado
   const loadProjectData = async () => {
     try {
       // Carregar colunas do projeto
@@ -164,7 +164,6 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
     fetchRows();
   }, [project.id]);
 
-  // Calculate derived values
   const calculateRow = (row: ProjectRow): ProjectRow => {
     const qtd = row.qtd || 0;
     const matUniPr = row.mat_uni_pr || 0;
