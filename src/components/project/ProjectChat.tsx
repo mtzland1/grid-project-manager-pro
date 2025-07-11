@@ -4,9 +4,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { useToast } from '@/components/ui/use-toast';
-import { MessageCircle, Send, Users } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
+import { MessageCircle, Send, Users, User, Clock } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { formatDistanceToNow, format, isToday, isYesterday } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
 
 interface ChatMessage {
   id: string;
@@ -32,6 +35,7 @@ const ProjectChat = ({ project }: ProjectChatProps) => {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string>('');
+  const [currentUserEmail, setCurrentUserEmail] = useState<string>('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
 
@@ -49,6 +53,7 @@ const ProjectChat = ({ project }: ProjectChatProps) => {
     const { data: { user } } = await supabase.auth.getUser();
     if (user) {
       setCurrentUserId(user.id);
+      setCurrentUserEmail(user.email || '');
     }
   };
 
@@ -67,13 +72,28 @@ const ProjectChat = ({ project }: ProjectChatProps) => {
       if (error) throw error;
 
       // Buscar informações dos usuários para as mensagens
-      const userIds = [...new Set(data?.map(msg => msg.user_id) || [])];
       const messagesWithUsers = await Promise.all(
         (data || []).map(async (msg) => {
-          // Simular email do usuário (em produção, você teria essa informação)
+          let userDisplay = 'Usuário';
+          
+          if (msg.user_id === currentUserId) {
+            userDisplay = 'Você';
+          } else {
+            // Tentar buscar o email do usuário das profiles
+            const { data: profile } = await supabase
+              .from('profiles')
+              .select('user_id')
+              .eq('user_id', msg.user_id)
+              .single();
+            
+            if (profile) {
+              userDisplay = `Usuário ${msg.user_id.slice(-4)}`;
+            }
+          }
+          
           return {
             ...msg,
-            user_email: `user${msg.user_id.slice(-4)}@exemplo.com`
+            user_email: userDisplay
           };
         })
       );
@@ -102,12 +122,14 @@ const ProjectChat = ({ project }: ProjectChatProps) => {
           table: 'project_chat_messages',
           filter: `project_id=eq.${project.id}`,
         },
-        (payload) => {
-          const newMessage = {
-            ...payload.new as ChatMessage,
-            user_email: `user${(payload.new as ChatMessage).user_id.slice(-4)}@exemplo.com`
-          };
-          setMessages(prev => [...prev, newMessage]);
+        async (payload) => {
+          const newMsg = payload.new as ChatMessage;
+          const userDisplay = newMsg.user_id === currentUserId ? 'Você' : `Usuário ${newMsg.user_id.slice(-4)}`;
+          
+          setMessages(prev => [...prev, {
+            ...newMsg,
+            user_email: userDisplay
+          }]);
         }
       )
       .subscribe();
@@ -152,12 +174,24 @@ const ProjectChat = ({ project }: ProjectChatProps) => {
     }
   };
 
-  const formatTime = (timestamp: string) => {
+  // Format message time with better date handling
+  const formatMessageTime = (timestamp: string) => {
     const date = new Date(timestamp);
-    return date.toLocaleTimeString('pt-BR', {
-      hour: '2-digit',
-      minute: '2-digit'
-    });
+    
+    if (isToday(date)) {
+      return format(date, 'HH:mm', { locale: ptBR });
+    } else if (isYesterday(date)) {
+      return `Ontem às ${format(date, 'HH:mm', { locale: ptBR })}`;
+    } else {
+      return format(date, 'dd/MM/yyyy HH:mm', { locale: ptBR });
+    }
+  };
+
+  // Get initials for avatar
+  const getInitials = (userEmail: string) => {
+    if (userEmail === 'Você') return 'EU';
+    if (userEmail.startsWith('Usuário')) return userEmail.slice(-4);
+    return userEmail.substring(0, 2).toUpperCase();
   };
 
   const formatDate = (timestamp: string) => {
@@ -194,110 +228,100 @@ const ProjectChat = ({ project }: ProjectChatProps) => {
 
   if (loading) {
     return (
-      <Card>
-        <CardContent className="p-6">
-          <div className="text-center">Carregando chat...</div>
-        </CardContent>
+      <Card className="h-[500px] flex items-center justify-center">
+        <div className="text-center text-muted-foreground">
+          <MessageCircle className="h-8 w-8 mx-auto mb-2 animate-pulse" />
+          <p>Carregando chat...</p>
+        </div>
       </Card>
     );
   }
 
-  const messageGroups = groupMessagesByDate(messages);
-
   return (
-    <Card className="h-[600px] flex flex-col">
-      <CardHeader className="flex-shrink-0 border-b">
-        <CardTitle className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <MessageCircle className="h-5 w-5" />
-            Chat do Projeto - {project.name}
-          </div>
-          <Badge variant="secondary" className="flex items-center gap-1">
-            <Users className="h-3 w-3" />
-            {messages.length} mensagens
-          </Badge>
+    <Card className="h-[500px] flex flex-col">
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-lg">
+          <MessageCircle className="h-5 w-5" />
+          Chat do Projeto
         </CardTitle>
+        <p className="text-sm text-muted-foreground">
+          {messages.length} {messages.length === 1 ? 'mensagem' : 'mensagens'}
+        </p>
       </CardHeader>
-
+      
       <CardContent className="flex-1 flex flex-col p-0">
         {/* Messages Area */}
-        <ScrollArea className="flex-1 p-4">
-          {messageGroups.length === 0 ? (
-            <div className="text-center py-8 text-gray-500">
-              Nenhuma mensagem ainda. Inicie a conversa!
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {messageGroups.map(({ date, messages }) => (
-                <div key={date}>
-                  {/* Date Separator */}
-                  <div className="flex items-center gap-2 my-4">
-                    <div className="flex-1 border-t border-gray-200"></div>
-                    <Badge variant="outline" className="text-xs px-2 py-1">
-                      {formatDate(messages[0].created_at)}
-                    </Badge>
-                    <div className="flex-1 border-t border-gray-200"></div>
-                  </div>
-
-                  {/* Messages */}
-                  <div className="space-y-3">
-                    {messages.map((message) => (
-                      <div
-                        key={message.id}
-                        className={`flex ${
-                          message.user_id === currentUserId ? 'justify-end' : 'justify-start'
-                        }`}
-                      >
-                        <div
-                          className={`max-w-[70%] rounded-lg p-3 ${
-                            message.user_id === currentUserId
-                              ? 'bg-blue-500 text-white'
-                              : 'bg-gray-100 text-gray-900'
-                          }`}
-                        >
-                          {message.user_id !== currentUserId && (
-                            <div className="text-xs opacity-70 mb-1">
-                              {message.user_email}
-                            </div>
-                          )}
-                          <div className="text-sm whitespace-pre-wrap">
-                            {message.message}
-                          </div>
-                          <div className={`text-xs mt-1 ${
-                            message.user_id === currentUserId 
-                              ? 'text-blue-100' 
-                              : 'text-gray-500'
-                          }`}>
-                            {formatTime(message.created_at)}
-                          </div>
-                        </div>
+        <ScrollArea className="flex-1 px-4">
+          <div className="space-y-4 pb-4">
+            {messages.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                <MessageCircle className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                <p className="text-lg font-medium">Nenhuma mensagem ainda</p>
+                <p className="text-sm">Seja o primeiro a enviar uma mensagem!</p>
+              </div>
+            ) : (
+              messages.map((message) => {
+                const isOwn = message.user_id === currentUserId;
+                return (
+                  <div
+                    key={message.id}
+                    className={`flex gap-3 ${isOwn ? 'flex-row-reverse' : ''}`}
+                  >
+                    <Avatar className="h-8 w-8 mt-1">
+                      <AvatarFallback className={`text-xs ${isOwn ? 'bg-primary text-primary-foreground' : 'bg-muted'}`}>
+                        {getInitials(message.user_email || 'U')}
+                      </AvatarFallback>
+                    </Avatar>
+                    
+                    <div className={`flex-1 max-w-[80%] ${isOwn ? 'text-right' : ''}`}>
+                      <div className={`inline-block rounded-lg px-3 py-2 ${
+                        isOwn 
+                          ? 'bg-primary text-primary-foreground' 
+                          : 'bg-muted'
+                      }`}>
+                        <p className="text-sm whitespace-pre-wrap break-words">
+                          {message.message}
+                        </p>
                       </div>
-                    ))}
+                      
+                      <div className={`flex items-center gap-1 mt-1 text-xs text-muted-foreground ${
+                        isOwn ? 'justify-end' : 'justify-start'
+                      }`}>
+                        <User className="h-3 w-3" />
+                        <span>{message.user_email}</span>
+                        <Clock className="h-3 w-3 ml-2" />
+                        <span>{formatMessageTime(message.created_at)}</span>
+                      </div>
+                    </div>
                   </div>
-                </div>
-              ))}
-              <div ref={messagesEndRef} />
-            </div>
-          )}
+                );
+              })
+            )}
+            <div ref={messagesEndRef} />
+          </div>
         </ScrollArea>
 
-        {/* Input Area */}
-        <div className="flex-shrink-0 border-t p-4">
+        {/* Message Input */}
+        <div className="border-t bg-background p-4">
           <div className="flex gap-2">
             <Input
+              placeholder="Digite sua mensagem..."
               value={newMessage}
               onChange={(e) => setNewMessage(e.target.value)}
               onKeyPress={handleKeyPress}
-              placeholder="Digite sua mensagem..."
-              className="flex-1"
               disabled={sending}
+              className="flex-1"
             />
             <Button 
               onClick={sendMessage} 
               disabled={!newMessage.trim() || sending}
               size="sm"
             >
-              <Send className="h-4 w-4" />
+              {sending ? (
+                <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+              ) : (
+                <Send className="h-4 w-4" />
+              )}
             </Button>
           </div>
         </div>

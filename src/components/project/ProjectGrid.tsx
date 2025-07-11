@@ -505,7 +505,7 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
                             <Button
                               size="sm"
                               variant="ghost"
-                              onClick={() => permissions.canEdit && setEditingRow(row.id)}
+                              onClick={() => permissions.canEdit ? setEditingRow(row.id) : null}
                               className={!permissions.canEdit ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-gray-100'}
                             >
                               <Edit className="h-3 w-3" />
@@ -514,7 +514,7 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
                           <Button
                             size="sm"
                             variant="ghost"
-                            onClick={() => permissions.canDelete && handleDeleteRow(row.id)}
+                            onClick={() => permissions.canDelete ? handleDeleteRow(row.id) : null}
                             className={`text-red-600 ${!permissions.canDelete ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:text-red-700 hover:bg-red-50'}`}
                           >
                             <Trash2 className="h-3 w-3" />
