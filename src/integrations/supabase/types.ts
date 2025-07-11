@@ -166,6 +166,7 @@ export type Database = {
           created_at: string
           desconto: number
           descricao: string
+          distribuidor: string | null
           id: string
           ipi: number
           mat_uni_pr: number
@@ -191,6 +192,7 @@ export type Database = {
           created_at?: string
           desconto?: number
           descricao: string
+          distribuidor?: string | null
           id?: string
           ipi?: number
           mat_uni_pr?: number
@@ -216,6 +218,7 @@ export type Database = {
           created_at?: string
           desconto?: number
           descricao?: string
+          distribuidor?: string | null
           id?: string
           ipi?: number
           mat_uni_pr?: number
@@ -341,7 +344,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      is_valid_role: {
+        Args: { role_name: string }
+        Returns: boolean
+      }
     }
     Enums: {
       permission_level: "none" | "view" | "edit"

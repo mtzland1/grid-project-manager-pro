@@ -146,7 +146,12 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
         return;
       }
 
-      setRows(data || []);
+      // Garantir que todos os campos obrigatórios estejam presentes
+      const rowsWithDefaults = (data || []).map(row => ({
+        ...row,
+        distribuidor: row.distribuidor || ''
+      }));
+      setRows(rowsWithDefaults);
     } catch (err) {
       console.error('Error fetching rows:', err);
       toast({
@@ -214,7 +219,11 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
       }
 
       if (data) {
-        setRows([...rows, calculateRow(data)]);
+        const dataWithDefaults = {
+          ...data,
+          distribuidor: data.distribuidor || ''
+        };
+        setRows([...rows, calculateRow(dataWithDefaults)]);
         setEditingRow(data.id);
       }
       
@@ -499,6 +508,7 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
                               variant="ghost"
                               onClick={() => setEditingRow(row.id)}
                               disabled={!permissions.canEdit}
+                              className={!permissions.canEdit ? 'opacity-50 cursor-not-allowed' : ''}
                             >
                               <Edit className="h-3 w-3" />
                             </Button>
@@ -507,7 +517,7 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
                             size="sm"
                             variant="ghost"
                             onClick={() => handleDeleteRow(row.id)}
-                            className="text-red-600 hover:text-red-700"
+                            className={`text-red-600 hover:text-red-700 ${!permissions.canDelete ? 'opacity-50 cursor-not-allowed' : ''}`}
                             disabled={!permissions.canDelete}
                           >
                             <Trash2 className="h-3 w-3" />
