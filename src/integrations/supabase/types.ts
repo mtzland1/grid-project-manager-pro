@@ -14,6 +14,33 @@ export type Database = {
   }
   public: {
     Tables: {
+      custom_roles: {
+        Row: {
+          color: string | null
+          created_at: string | null
+          description: string | null
+          id: string
+          name: string
+          updated_at: string | null
+        }
+        Insert: {
+          color?: string | null
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          name: string
+          updated_at?: string | null
+        }
+        Update: {
+          color?: string | null
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          name?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           created_at: string
@@ -37,6 +64,56 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      project_columns: {
+        Row: {
+          column_key: string
+          column_label: string
+          column_order: number | null
+          column_type: string | null
+          column_width: string | null
+          created_at: string | null
+          id: string
+          is_calculated: boolean | null
+          is_system_column: boolean | null
+          project_id: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          column_key: string
+          column_label: string
+          column_order?: number | null
+          column_type?: string | null
+          column_width?: string | null
+          created_at?: string | null
+          id?: string
+          is_calculated?: boolean | null
+          is_system_column?: boolean | null
+          project_id?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          column_key?: string
+          column_label?: string
+          column_order?: number | null
+          column_type?: string | null
+          column_width?: string | null
+          created_at?: string | null
+          id?: string
+          is_calculated?: boolean | null
+          is_system_column?: boolean | null
+          project_id?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_columns_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       project_items: {
         Row: {
@@ -148,6 +225,82 @@ export type Database = {
         }
         Relationships: []
       }
+      role_column_permissions: {
+        Row: {
+          column_key: string
+          created_at: string | null
+          id: string
+          permission_level: Database["public"]["Enums"]["permission_level"]
+          project_id: string | null
+          role_name: string
+          updated_at: string | null
+        }
+        Insert: {
+          column_key: string
+          created_at?: string | null
+          id?: string
+          permission_level?: Database["public"]["Enums"]["permission_level"]
+          project_id?: string | null
+          role_name: string
+          updated_at?: string | null
+        }
+        Update: {
+          column_key?: string
+          created_at?: string | null
+          id?: string
+          permission_level?: Database["public"]["Enums"]["permission_level"]
+          project_id?: string | null
+          role_name?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "role_column_permissions_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      user_project_roles: {
+        Row: {
+          assigned_by: string
+          created_at: string | null
+          id: string
+          project_id: string | null
+          role_name: string
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          assigned_by: string
+          created_at?: string | null
+          id?: string
+          project_id?: string | null
+          role_name: string
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          assigned_by?: string
+          created_at?: string | null
+          id?: string
+          project_id?: string | null
+          role_name?: string
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_project_roles_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -156,7 +309,7 @@ export type Database = {
       [_ in never]: never
     }
     Enums: {
-      [_ in never]: never
+      permission_level: "none" | "view" | "edit"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -283,6 +436,8 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      permission_level: ["none", "view", "edit"],
+    },
   },
 } as const
