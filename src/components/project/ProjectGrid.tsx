@@ -1,0 +1,517 @@
+
+import { useState, useEffect } from 'react';
+import { supabase } from '@/integrations/supabase/client';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { useToast } from '@/components/ui/use-toast';
+import { ArrowLeft, Plus, Save, Trash2, Edit, Search, Download } from 'lucide-react';
+import { ScrollArea } from '@/components/ui/scroll-area';
+
+interface Project {
+  id: string;
+  name: string;
+  created_at: string;
+  updated_at: string;
+  created_by: string;
+}
+
+interface ProjectRow {
+  id: string;
+  project_id: string;
+  descricao: string;
+  qtd: number;
+  unidade: string;
+  mat_uni_pr: number;
+  desconto: number;
+  cc_mat_uni: number;
+  cc_mat_total: number;
+  cc_mo_uni: number;
+  cc_mo_total: number;
+  ipi: number;
+  st: number;
+  pv_uni: number;
+  pv_total: number;
+  marca: string;
+  modelo: string;
+  distribuidor: string;
+  codigo: string;
+  observacoes: string;
+  vlr_unit_estimado: number;
+  vlr_total_estimado: number;
+}
+
+interface ProjectGridProps {
+  project: Project;
+  onBack: () => void;
+  userRole: 'admin' | 'collaborator';
+}
+
+const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
+  const [rows, setRows] = useState<ProjectRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [editingRow, setEditingRow] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const { toast } = useToast();
+
+  const defaultRow: Omit<ProjectRow, 'id' | 'project_id'> = {
+    descricao: '',
+    qtd: 0,
+    unidade: '',
+    mat_uni_pr: 0,
+    desconto: 0,
+    cc_mat_uni: 0,
+    cc_mat_total: 0,
+    cc_mo_uni: 0,
+    cc_mo_total: 0,
+    ipi: 0,
+    st: 0,
+    pv_uni: 0,
+    pv_total: 0,
+    marca: '',
+    modelo: '',
+    distribuidor: '',
+    codigo: '',
+    observacoes: '',
+    vlr_unit_estimado: 0,
+    vlr_total_estimado: 0,
+  };
+
+  const columns = [
+    { key: 'descricao', label: 'DESCRIÇÃO', type: 'text', width: '200px' },
+    { key: 'qtd', label: 'QTD', type: 'number', width: '80px' },
+    { key: 'unidade', label: 'UNIDADE', type: 'text', width: '80px' },
+    { key: 'mat_uni_pr', label: 'MAT UNI - PR (R$)', type: 'currency', width: '120px' },
+    { key: 'desconto', label: 'Desconto (%)', type: 'percentage', width: '100px' },
+    { key: 'cc_mat_uni', label: 'CC MAT UNI (R$)', type: 'currency', width: '120px' },
+    { key: 'cc_mat_total', label: 'CC MAT TOTAL (R$)', type: 'currency', width: '130px', calculated: true },
+    { key: 'cc_mo_uni', label: 'CC MO UNI (R$)', type: 'currency', width: '120px' },
+    { key: 'cc_mo_total', label: 'CC MO TOTAL (R$)', type: 'currency', width: '130px', calculated: true },
+    { key: 'ipi', label: 'IPI (R$)', type: 'currency', width: '90px' },
+    { key: 'st', label: 'ST (R$)', type: 'currency', width: '90px' },
+    { key: 'pv_uni', label: 'PV UNI', type: 'currency', width: '100px' },
+    { key: 'pv_total', label: 'PV TOTAL', type: 'currency', width: '110px', calculated: true },
+    { key: 'marca', label: 'MARCA', type: 'text', width: '100px' },
+    { key: 'modelo', label: 'MODELO', type: 'text', width: '100px' },
+    { key: 'distribuidor', label: 'DISTRIBUIDOR', type: 'text', width: '120px' },
+    { key: 'codigo', label: 'CÓDIGO', type: 'text', width: '100px' },
+    { key: 'observacoes', label: 'OBSERVAÇÕES', type: 'text', width: '150px' },
+    { key: 'vlr_unit_estimado', label: 'VLR. UNIT ESTIMADO', type: 'currency', width: '140px' },
+    { key: 'vlr_total_estimado', label: 'VLR. TOTAL ESTIMADO', type: 'currency', width: '150px', calculated: true },
+  ];
+
+  const fetchRows = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('project_rows')
+        .select('*')
+        .eq('project_id', project.id)
+        .order('created_at', { ascending: true });
+
+      if (error) {
+        console.error('Error fetching rows:', error);
+        toast({
+          title: "Erro ao carregar dados",
+          description: error.message,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      setRows(data || []);
+    } catch (err) {
+      console.error('Error fetching rows:', err);
+      toast({
+        title: "Erro inesperado",
+        description: "Não foi possível carregar os dados do projeto",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchRows();
+  }, [project.id]);
+
+  // Calculate derived values
+  const calculateRow = (row: ProjectRow): ProjectRow => {
+    const qtd = row.qtd || 0;
+    const matUniPr = row.mat_uni_pr || 0;
+    const desconto = row.desconto || 0;
+    const ccMoUni = row.cc_mo_uni || 0;
+    const pvUni = row.pv_uni || 0;
+    const vlrUnitEstimado = row.vlr_unit_estimado || 0;
+
+    // Calculate unit cost with discount
+    const ccMatUni = matUniPr * (1 - desconto / 100);
+    
+    return {
+      ...row,
+      cc_mat_uni: ccMatUni,
+      cc_mat_total: ccMatUni * qtd,
+      cc_mo_total: ccMoUni * qtd,
+      pv_total: pvUni * qtd,
+      vlr_total_estimado: vlrUnitEstimado * qtd,
+    };
+  };
+
+  const handleAddRow = async () => {
+    if (userRole !== 'admin') {
+      toast({
+        title: "Acesso negado",
+        description: "Apenas administradores podem adicionar linhas",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      const newRow = {
+        ...defaultRow,
+        project_id: project.id,
+      };
+
+      const { data, error } = await supabase
+        .from('project_rows')
+        .insert([newRow])
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Error adding row:', error);
+        toast({
+          title: "Erro ao adicionar linha",
+          description: error.message,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      setRows([...rows, calculateRow(data)]);
+      setEditingRow(data.id);
+      
+      toast({
+        title: "Linha adicionada!",
+        description: "Nova linha criada com sucesso",
+      });
+    } catch (err) {
+      console.error('Error adding row:', err);
+      toast({
+        title: "Erro inesperado",
+        description: "Não foi possível adicionar a linha",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleUpdateRow = async (rowId: string, updates: Partial<ProjectRow>) => {
+    if (userRole !== 'admin') {
+      toast({
+        title: "Acesso negado",
+        description: "Apenas administradores podem editar dados",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('project_rows')
+        .update(updates)
+        .eq('id', rowId);
+
+      if (error) {
+        console.error('Error updating row:', error);
+        toast({
+          title: "Erro ao salvar",
+          description: error.message,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      setRows(rows.map(row => 
+        row.id === rowId 
+          ? calculateRow({ ...row, ...updates })
+          : row
+      ));
+
+      toast({
+        title: "Dados salvos!",
+        description: "Alterações salvas com sucesso",
+      });
+    } catch (err) {
+      console.error('Error updating row:', err);
+      toast({
+        title: "Erro inesperado",
+        description: "Não foi possível salvar os dados",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleDeleteRow = async (rowId: string) => {
+    if (userRole !== 'admin') {
+      toast({
+        title: "Acesso negado",
+        description: "Apenas administradores podem deletar linhas",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!confirm('Tem certeza que deseja deletar esta linha?')) {
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('project_rows')
+        .delete()
+        .eq('id', rowId);
+
+      if (error) {
+        console.error('Error deleting row:', error);
+        toast({
+          title: "Erro ao deletar",
+          description: error.message,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      setRows(rows.filter(row => row.id !== rowId));
+      
+      toast({
+        title: "Linha deletada!",
+        description: "Linha removida com sucesso",
+      });
+    } catch (err) {
+      console.error('Error deleting row:', err);
+      toast({
+        title: "Erro inesperado",
+        description: "Não foi possível deletar a linha",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const formatValue = (value: any, type: string) => {
+    if (value === null || value === undefined) return '';
+    
+    switch (type) {
+      case 'currency':
+        return new Intl.NumberFormat('pt-BR', {
+          style: 'currency',
+          currency: 'BRL'
+        }).format(Number(value) || 0);
+      case 'percentage':
+        return `${Number(value) || 0}%`;
+      case 'number':
+        return String(Number(value) || 0);
+      default:
+        return String(value);
+    }
+  };
+
+  const filteredRows = rows.filter(row =>
+    row.descricao.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    row.marca.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    row.modelo.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    row.codigo.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  const totals = filteredRows.reduce((acc, row) => ({
+    cc_mat_total: acc.cc_mat_total + (row.cc_mat_total || 0),
+    cc_mo_total: acc.cc_mo_total + (row.cc_mo_total || 0),
+    pv_total: acc.pv_total + (row.pv_total || 0),
+    vlr_total_estimado: acc.vlr_total_estimado + (row.vlr_total_estimado || 0),
+  }), { cc_mat_total: 0, cc_mo_total: 0, pv_total: 0, vlr_total_estimado: 0 });
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-white">
+      {/* Header */}
+      <header className="bg-white shadow-sm border-b border-gray-200 sticky top-0 z-10">
+        <div className="max-w-full px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center h-16">
+            <div className="flex items-center space-x-4">
+              <Button variant="ghost" onClick={onBack}>
+                <ArrowLeft className="h-4 w-4 mr-2" />
+                Voltar
+              </Button>
+              <div>
+                <h1 className="text-xl font-bold text-gray-900">{project.name}</h1>
+                <p className="text-sm text-gray-500">
+                  {rows.length} {rows.length === 1 ? 'item' : 'itens'}
+                </p>
+              </div>
+            </div>
+            
+            <div className="flex items-center space-x-2">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <Input
+                  placeholder="Buscar itens..."
+                  className="pl-10 w-64"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+              </div>
+              
+              {userRole === 'admin' && (
+                <Button onClick={handleAddRow}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Nova Linha
+                </Button>
+              )}
+              
+              <Button variant="outline">
+                <Download className="h-4 w-4 mr-2" />
+                Exportar
+              </Button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {/* Totals Summary */}
+      <div className="bg-gray-50 border-b border-gray-200 px-4 sm:px-6 lg:px-8 py-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="text-center">
+            <p className="text-sm text-gray-600">Total Material</p>
+            <p className="text-lg font-semibold text-blue-600">
+              {formatValue(totals.cc_mat_total, 'currency')}
+            </p>
+          </div>
+          <div className="text-center">
+            <p className="text-sm text-gray-600">Total Mão de Obra</p>
+            <p className="text-lg font-semibold text-green-600">
+              {formatValue(totals.cc_mo_total, 'currency')}
+            </p>
+          </div>
+          <div className="text-center">
+            <p className="text-sm text-gray-600">Total Preço Venda</p>
+            <p className="text-lg font-semibold text-purple-600">
+              {formatValue(totals.pv_total, 'currency')}
+            </p>
+          </div>
+          <div className="text-center">
+            <p className="text-sm text-gray-600">Total Estimado</p>
+            <p className="text-lg font-semibold text-orange-600">
+              {formatValue(totals.vlr_total_estimado, 'currency')}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Grid */}
+      <div className="p-4 sm:p-6 lg:p-8">
+        <Card>
+          <CardContent className="p-0">
+            <ScrollArea className="h-[calc(100vh-300px)]">
+              <div className="overflow-x-auto">
+                <div className="min-w-max">
+                  {/* Header */}
+                  <div className="flex bg-gray-50 border-b border-gray-200 sticky top-0">
+                    {userRole === 'admin' && (
+                      <div className="w-20 p-3 border-r border-gray-200 font-medium text-sm text-gray-700">
+                        Ações
+                      </div>
+                    )}
+                    {columns.map((column) => (
+                      <div 
+                        key={column.key}
+                        className="p-3 border-r border-gray-200 font-medium text-sm text-gray-700"
+                        style={{ width: column.width, minWidth: column.width }}
+                      >
+                        {column.label}
+                        {column.calculated && (
+                          <span className="ml-1 text-xs text-blue-600">*</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Rows */}
+                  {filteredRows.length === 0 ? (
+                    <div className="p-8 text-center text-gray-500">
+                      {searchTerm ? 'Nenhum item encontrado' : 'Nenhum item adicionado ainda'}
+                    </div>
+                  ) : (
+                    filteredRows.map((row, index) => (
+                      <div key={row.id} className={`flex hover:bg-gray-50 ${index % 2 === 0 ? 'bg-white' : 'bg-gray-25'}`}>
+                        {userRole === 'admin' && (
+                          <div className="w-20 p-2 border-r border-gray-200 flex space-x-1">
+                            {editingRow === row.id ? (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => setEditingRow(null)}
+                              >
+                                <Save className="h-3 w-3" />
+                              </Button>
+                            ) : (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => setEditingRow(row.id)}
+                              >
+                                <Edit className="h-3 w-3" />
+                              </Button>
+                            )}
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => handleDeleteRow(row.id)}
+                              className="text-red-600 hover:text-red-700"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        )}
+                        {columns.map((column) => (
+                          <div 
+                            key={column.key}
+                            className="p-2 border-r border-gray-200"
+                            style={{ width: column.width, minWidth: column.width }}
+                          >
+                            {editingRow === row.id && !column.calculated && userRole === 'admin' ? (
+                              <Input
+                                type={column.type === 'number' || column.type === 'currency' || column.type === 'percentage' ? 'number' : 'text'}
+                                value={row[column.key as keyof ProjectRow] || ''}
+                                onChange={(e) => {
+                                  const value = column.type === 'number' || column.type === 'currency' || column.type === 'percentage' 
+                                    ? Number(e.target.value) || 0
+                                    : e.target.value;
+                                  handleUpdateRow(row.id, { [column.key]: value });
+                                }}
+                                className="h-8 text-sm"
+                                step={column.type === 'currency' ? '0.01' : column.type === 'percentage' ? '0.1' : '1'}
+                              />
+                            ) : (
+                              <span className={`text-sm ${column.calculated ? 'font-medium text-blue-600' : ''}`}>
+                                {formatValue(row[column.key as keyof ProjectRow], column.type)}
+                              </span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </ScrollArea>
+          </CardContent>
+        </Card>
+        
+        <div className="mt-4 text-xs text-gray-500">
+          * Campos calculados automaticamente
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default ProjectGrid;
