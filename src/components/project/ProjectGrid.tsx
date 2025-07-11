@@ -3,7 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { useToast } from '@/components/ui/use-toast';
+import { useToast } from '@/hooks/use-toast';
 import { ArrowLeft, Plus, Save, Trash2, Edit, Search, Download, MessageCircle } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useUserPermissions } from '@/hooks/useUserPermissions';
@@ -146,12 +146,11 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
         return;
       }
 
-      // Garantir que todos os campos obrigatórios estejam presentes
-      const rowsWithDefaults = (data || []).map(row => ({
-        ...row,
-        distribuidor: row.distribuidor || ''
-      }));
-      setRows(rowsWithDefaults);
+      // Garantir que todos os items tenham a propriedade distribuidor
+      setRows((data || []).map(item => ({
+        ...item,
+        distribuidor: item.distribuidor || ''
+      })));
     } catch (err) {
       console.error('Error fetching rows:', err);
       toast({
@@ -219,11 +218,11 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
       }
 
       if (data) {
-        const dataWithDefaults = {
+        const rowWithDistribuidor = {
           ...data,
           distribuidor: data.distribuidor || ''
         };
-        setRows([...rows, calculateRow(dataWithDefaults)]);
+        setRows([...rows, calculateRow(rowWithDistribuidor)]);
         setEditingRow(data.id);
       }
       
@@ -491,14 +490,14 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
                   ) : (
                     filteredRows.map((row, index) => (
                       <div key={row.id} className={`flex hover:bg-gray-50 ${index % 2 === 0 ? 'bg-white' : 'bg-gray-25'}`}>
-                        {/* Ações sempre visíveis para todas as roles */}
+                        {/* Ações sempre visíveis - corrigido para ser clicável quando há permissão */}
                         <div className="w-20 p-2 border-r border-gray-200 flex space-x-1">
                           {editingRow === row.id ? (
                             <Button
                               size="sm"
                               variant="ghost"
                               onClick={() => setEditingRow(null)}
-                              disabled={!permissions.canEdit}
+                              className={!permissions.canEdit ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
                             >
                               <Save className="h-3 w-3" />
                             </Button>
@@ -506,9 +505,8 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
                             <Button
                               size="sm"
                               variant="ghost"
-                              onClick={() => setEditingRow(row.id)}
-                              disabled={!permissions.canEdit}
-                              className={!permissions.canEdit ? 'opacity-50 cursor-not-allowed' : ''}
+                              onClick={() => permissions.canEdit && setEditingRow(row.id)}
+                              className={!permissions.canEdit ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-gray-100'}
                             >
                               <Edit className="h-3 w-3" />
                             </Button>
@@ -516,9 +514,8 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
                           <Button
                             size="sm"
                             variant="ghost"
-                            onClick={() => handleDeleteRow(row.id)}
-                            className={`text-red-600 hover:text-red-700 ${!permissions.canDelete ? 'opacity-50 cursor-not-allowed' : ''}`}
-                            disabled={!permissions.canDelete}
+                            onClick={() => permissions.canDelete && handleDeleteRow(row.id)}
+                            className={`text-red-600 ${!permissions.canDelete ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:text-red-700 hover:bg-red-50'}`}
                           >
                             <Trash2 className="h-3 w-3" />
                           </Button>
