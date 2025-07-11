@@ -369,6 +369,69 @@ const RolePermissionManager = ({ project }: RolePermissionManagerProps) => {
     }
   };
 
+  const deleteRole = async (roleName: string) => {
+    if (roleName === 'admin') {
+      toast({
+        title: "Ação não permitida",
+        description: "Não é possível excluir a role admin",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!confirm(`Tem certeza que deseja excluir a role "${roleName}"? Esta ação não pode ser desfeita.`)) {
+      return;
+    }
+
+    try {
+      // Primeiro, remover todas as permissões relacionadas
+      const { error: permissionsError } = await supabase
+        .from('role_column_permissions')
+        .delete()
+        .eq('role_name', roleName);
+
+      if (permissionsError) throw permissionsError;
+
+      // Remover atribuições de usuários
+      const { error: userRolesError } = await supabase
+        .from('user_project_roles')
+        .delete()
+        .eq('role_name', roleName);
+
+      if (userRolesError) throw userRolesError;
+
+      // Remover a role
+      const { error: roleError } = await supabase
+        .from('custom_roles')
+        .delete()
+        .eq('name', roleName);
+
+      if (roleError) throw roleError;
+
+      // Atualizar estado local
+      setRoles(roles.filter(r => r.name !== roleName));
+      setPermissions(permissions.filter(p => p.role_name !== roleName));
+      
+      // Selecionar outra role
+      const remainingRoles = roles.filter(r => r.name !== roleName);
+      if (remainingRoles.length > 0) {
+        setSelectedRole(remainingRoles[0].name);
+      }
+
+      toast({
+        title: "Role excluída",
+        description: `Role "${roleName}" foi excluída com sucesso`,
+      });
+    } catch (error) {
+      console.error('Error deleting role:', error);
+      toast({
+        title: "Erro ao excluir role",
+        description: "Não foi possível excluir a role",
+        variant: "destructive",
+      });
+    }
+  };
+
   const getPermissionIcon = (level: 'none' | 'view' | 'edit') => {
     switch (level) {
       case 'none':
@@ -483,10 +546,23 @@ const RolePermissionManager = ({ project }: RolePermissionManagerProps) => {
                 
                 <Dialog open={showCreateColumn} onOpenChange={setShowCreateColumn}>
                   <DialogTrigger asChild>
+                  <div className="flex gap-2">
                     <Button variant="outline" size="sm">
                       <Plus className="h-4 w-4 mr-1" />
                       Nova Coluna
                     </Button>
+                    
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => deleteRole(selectedRole)}
+                      className="text-red-600 hover:text-red-700"
+                      disabled={selectedRole === 'admin'}
+                    >
+                      <Trash2 className="h-4 w-4 mr-1" />
+                      Excluir Role
+                    </Button>
+                  </div>
                   </DialogTrigger>
                   <DialogContent>
                     <DialogHeader>

@@ -5,9 +5,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/components/ui/use-toast';
-import { ArrowLeft, Plus, Save, Trash2, Edit, Search, Download } from 'lucide-react';
+import { ArrowLeft, Plus, Save, Trash2, Edit, Search, Download, MessageCircle } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useUserPermissions } from '@/hooks/useUserPermissions';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import ProjectChat from './ProjectChat';
 
 interface Project {
   id: string;
@@ -75,6 +77,7 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
   const [loading, setLoading] = useState(true);
   const [editingRow, setEditingRow] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [showChat, setShowChat] = useState(false);
   const { toast } = useToast();
   
   // Usar hook de permissões
@@ -391,6 +394,21 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
                 </Button>
               )}
               
+              <Dialog open={showChat} onOpenChange={setShowChat}>
+                <DialogTrigger asChild>
+                  <Button variant="outline">
+                    <MessageCircle className="h-4 w-4 mr-2" />
+                    Chat
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="max-w-4xl max-h-[80vh]">
+                  <DialogHeader>
+                    <DialogTitle>Chat do Projeto</DialogTitle>
+                  </DialogHeader>
+                  <ProjectChat project={project} />
+                </DialogContent>
+              </Dialog>
+              
               <Button variant="outline">
                 <Download className="h-4 w-4 mr-2" />
                 Exportar
@@ -439,11 +457,10 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
                 <div className="min-w-max">
                   {/* Header */}
                   <div className="flex bg-gray-50 border-b border-gray-200 sticky top-0">
-                    {permissions.canEdit && (
-                      <div className="w-20 p-3 border-r border-gray-200 font-medium text-sm text-gray-700">
-                        Ações
-                      </div>
-                    )}
+                    {/* Ações sempre visíveis */}
+                    <div className="w-20 p-3 border-r border-gray-200 font-medium text-sm text-gray-700">
+                      Ações
+                    </div>
                     {visibleColumns.map((column) => (
                       <div 
                         key={column.column_key}
@@ -466,35 +483,37 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
                   ) : (
                     filteredRows.map((row, index) => (
                       <div key={row.id} className={`flex hover:bg-gray-50 ${index % 2 === 0 ? 'bg-white' : 'bg-gray-25'}`}>
-                        {permissions.canEdit && (
-                          <div className="w-20 p-2 border-r border-gray-200 flex space-x-1">
-                            {editingRow === row.id ? (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => setEditingRow(null)}
-                              >
-                                <Save className="h-3 w-3" />
-                              </Button>
-                            ) : (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => setEditingRow(row.id)}
-                              >
-                                <Edit className="h-3 w-3" />
-                              </Button>
-                            )}
+                        {/* Ações sempre visíveis para todas as roles */}
+                        <div className="w-20 p-2 border-r border-gray-200 flex space-x-1">
+                          {editingRow === row.id ? (
                             <Button
                               size="sm"
                               variant="ghost"
-                              onClick={() => handleDeleteRow(row.id)}
-                              className="text-red-600 hover:text-red-700"
+                              onClick={() => setEditingRow(null)}
+                              disabled={!permissions.canEdit}
                             >
-                              <Trash2 className="h-3 w-3" />
+                              <Save className="h-3 w-3" />
                             </Button>
-                          </div>
-                        )}
+                          ) : (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => setEditingRow(row.id)}
+                              disabled={!permissions.canEdit}
+                            >
+                              <Edit className="h-3 w-3" />
+                            </Button>
+                          )}
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleDeleteRow(row.id)}
+                            className="text-red-600 hover:text-red-700"
+                            disabled={!permissions.canDelete}
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </div>
                         {visibleColumns.map((column) => (
                           <div 
                             key={column.column_key}
@@ -506,6 +525,19 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
                                 type={column.column_type === 'number' || column.column_type === 'currency' || column.column_type === 'percentage' ? 'number' : 'text'}
                                 value={row[column.column_key as keyof ProjectRow] || ''}
                                 onChange={(e) => {
+                                  // Atualizar estado local imediatamente para evitar problemas de digitação
+                                  const value = column.column_type === 'number' || column.column_type === 'currency' || column.column_type === 'percentage' 
+                                    ? Number(e.target.value) || 0
+                                    : e.target.value;
+                                  
+                                  setRows(rows.map(r => 
+                                    r.id === row.id 
+                                      ? { ...r, [column.column_key]: value }
+                                      : r
+                                  ));
+                                }}
+                                onBlur={(e) => {
+                                  // Salvar no banco apenas quando sair do campo
                                   const value = column.column_type === 'number' || column.column_type === 'currency' || column.column_type === 'percentage' 
                                     ? Number(e.target.value) || 0
                                     : e.target.value;

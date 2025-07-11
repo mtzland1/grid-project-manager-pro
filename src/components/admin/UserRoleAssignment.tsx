@@ -118,10 +118,10 @@ const UserRoleAssignment = ({ project }: UserRoleAssignmentProps) => {
     setIsAssigning(true);
 
     try {
-      // Primeiro, verificar se o usuário existe através do email
-      // Em um sistema real, você teria uma função para buscar usuário por email
-      // Para demonstração, vamos simular um user_id
-      const simulatedUserId = `user-${Date.now()}`;
+      // Simular busca de usuário por email
+      // Em um sistema real, você teria uma função ou view para mapear email para user_id
+      // Para demonstração, vamos gerar um ID baseado no email
+      const userId = `user-${userEmail.replace(/[@.]/g, '-')}-${Date.now()}`;
 
       // Verificar se o usuário já tem uma role neste projeto
       const existingAssignment = userRoles.find(ur => ur.user_email === userEmail);
@@ -150,7 +150,7 @@ const UserRoleAssignment = ({ project }: UserRoleAssignmentProps) => {
         const { data, error } = await supabase
           .from('user_project_roles')
           .insert({
-            user_id: simulatedUserId,
+            user_id: userId,
             project_id: project.id,
             role_name: selectedRole,
             assigned_by: (await supabase.auth.getUser()).data.user?.id || ''
