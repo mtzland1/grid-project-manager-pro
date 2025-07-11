@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/components/ui/use-toast';
 import { ArrowLeft, Plus, Save, Trash2, Edit, Search, Download } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { useUserPermissions } from '@/hooks/useUserPermissions';
 
 interface Project {
   id: string;
@@ -71,12 +72,13 @@ interface ProjectGridProps {
 const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
   const [rows, setRows] = useState<ProjectRow[]>([]);
   const [columns, setColumns] = useState<ProjectColumn[]>([]);
-  const [permissions, setPermissions] = useState<RolePermission[]>([]);
-  const [currentUserRole, setCurrentUserRole] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [editingRow, setEditingRow] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const { toast } = useToast();
+  
+  // Usar hook de permissões
+  const { permissions, canViewColumn, canEditColumn } = useUserPermissions(project.id);
 
   const defaultRow: Omit<ProjectRow, 'id' | 'project_id'> = {
     descricao: '',
@@ -100,7 +102,7 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
     vlr_total_venda: 0,
   };
 
-  // Carregamento de dados completo
+  // Carregamento de dados simplificado
   const loadProjectData = async () => {
     try {
       // Carregar colunas do projeto
@@ -112,40 +114,7 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
 
       if (columnsError) throw columnsError;
 
-      // Carregar permissões para este projeto
-      const { data: permissionsData, error: permissionsError } = await supabase
-        .from('role_column_permissions')
-        .select('*')
-        .eq('project_id', project.id);
-
-      if (permissionsError) throw permissionsError;
-
-      // Obter o role atual do usuário no contexto do projeto
-      const { data: userAuth } = await supabase.auth.getUser();
-      if (userAuth.user) {
-        const { data: userRoleData } = await supabase
-          .from('user_project_roles')
-          .select('role_name')
-          .eq('user_id', userAuth.user.id)
-          .eq('project_id', project.id)
-          .maybeSingle();
-
-        // Se não há role específica no projeto, usar role do perfil
-        if (!userRoleData) {
-          const { data: profileData } = await supabase
-            .from('profiles')
-            .select('role')
-            .eq('user_id', userAuth.user.id)
-            .single();
-          
-          setCurrentUserRole(profileData?.role || userRole);
-        } else {
-          setCurrentUserRole(userRoleData.role_name);
-        }
-      }
-
       setColumns(columnsData || []);
-      setPermissions(permissionsData || []);
     } catch (error) {
       console.error('Error loading project data:', error);
       toast({
@@ -210,39 +179,11 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
     };
   };
 
-  // Função para obter nível de permissão de uma coluna
-  const getPermissionLevel = (columnKey: string): 'none' | 'view' | 'edit' => {
-    // Admin sempre tem acesso total
-    if (currentUserRole === 'admin') return 'edit';
-    
-    const permission = permissions.find(p => 
-      p.role_name === currentUserRole && p.column_key === columnKey
-    );
-    
-    return permission?.permission_level || 'view';
-  };
-
-  // Função para verificar se pode editar uma coluna
-  const canEditColumn = (columnKey: string): boolean => {
-    return getPermissionLevel(columnKey) === 'edit';
-  };
-
-  // Função para verificar se pode ver uma coluna
-  const canViewColumn = (columnKey: string): boolean => {
-    const level = getPermissionLevel(columnKey);
-    return level === 'view' || level === 'edit';
-  };
-
-  // Função para verificar se pode executar operações CRUD
-  const canPerformCRUD = (): boolean => {
-    return currentUserRole === 'admin';
-  };
-
   const handleAddRow = async () => {
-    if (!canPerformCRUD()) {
+    if (!permissions.canCreate) {
       toast({
         title: "Acesso negado",
-        description: "Apenas administradores podem adicionar linhas",
+        description: "Você não tem permissão para adicionar linhas",
         variant: "destructive",
       });
       return;
@@ -290,8 +231,7 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
   };
 
   const handleUpdateRow = async (rowId: string, updates: Partial<ProjectRow>) => {
-    // Para updates de linha, verificar se tem permissão geral de CRUD
-    if (!canPerformCRUD()) {
+    if (!permissions.canEdit) {
       toast({
         title: "Acesso negado",
         description: "Você não tem permissão para editar dados",
@@ -337,7 +277,7 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
   };
 
   const handleDeleteRow = async (rowId: string) => {
-    if (!canPerformCRUD()) {
+    if (!permissions.canDelete) {
       toast({
         title: "Acesso negado",
         description: "Você não tem permissão para deletar linhas",
@@ -444,7 +384,7 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
                 />
               </div>
               
-              {canPerformCRUD() && (
+              {permissions.canCreate && (
                 <Button onClick={handleAddRow}>
                   <Plus className="h-4 w-4 mr-2" />
                   Nova Linha
@@ -499,7 +439,7 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
                 <div className="min-w-max">
                   {/* Header */}
                   <div className="flex bg-gray-50 border-b border-gray-200 sticky top-0">
-                    {canPerformCRUD() && (
+                    {permissions.canEdit && (
                       <div className="w-20 p-3 border-r border-gray-200 font-medium text-sm text-gray-700">
                         Ações
                       </div>
@@ -526,7 +466,7 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
                   ) : (
                     filteredRows.map((row, index) => (
                       <div key={row.id} className={`flex hover:bg-gray-50 ${index % 2 === 0 ? 'bg-white' : 'bg-gray-25'}`}>
-                        {canPerformCRUD() && (
+                        {permissions.canEdit && (
                           <div className="w-20 p-2 border-r border-gray-200 flex space-x-1">
                             {editingRow === row.id ? (
                               <Button
