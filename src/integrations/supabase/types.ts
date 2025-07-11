@@ -63,7 +63,15 @@ export type Database = {
           updated_at?: string
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "profiles_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "user_emails"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       project_chat_messages: {
         Row: {
@@ -261,7 +269,15 @@ export type Database = {
           name?: string
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "projects_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "user_emails"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       role_column_permissions: {
         Row: {
@@ -341,9 +357,34 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      user_emails: {
+        Row: {
+          email: string | null
+          full_name: string | null
+          id: string | null
+        }
+        Insert: {
+          email?: string | null
+          full_name?: never
+          id?: string | null
+        }
+        Update: {
+          email?: string | null
+          full_name?: never
+          id?: string | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
+      get_user_by_email: {
+        Args: { user_email: string }
+        Returns: {
+          user_id: string
+          email: string
+          full_name: string
+        }[]
+      }
       is_valid_role: {
         Args: { role_name: string }
         Returns: boolean

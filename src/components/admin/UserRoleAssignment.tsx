@@ -8,7 +8,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { UserPlus, Users, Mail, Trash2 } from 'lucide-react';
+import { UserPlus, Users, Mail, Trash2, AlertCircle } from 'lucide-react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 
 interface CustomRole {
   id: string;
@@ -22,6 +23,7 @@ interface UserProjectRole {
   user_id: string;
   role_name: string;
   user_email?: string;
+  user_name?: string;
 }
 
 interface Project {
@@ -68,27 +70,32 @@ const UserRoleAssignment = ({ project }: UserRoleAssignmentProps) => {
 
       if (userRolesError) throw userRolesError;
 
-      // Buscar emails dos usuários
+      // Buscar informações dos usuários usando a view user_emails
       const userIds = userRolesData?.map(ur => ur.user_id) || [];
-      const userEmails: { [key: string]: string } = {};
+      const userInfo: { [key: string]: { email: string; name: string } } = {};
       
       if (userIds.length > 0) {
-        // Como não podemos acessar auth.users diretamente, vamos usar profiles
-        const { data: profilesData } = await supabase
-          .from('profiles')
-          .select('user_id')
-          .in('user_id', userIds);
-        
-        // Para demonstração, vamos simular os emails
-        // Em um sistema real, você precisaria de uma forma de mapear user_id para email
-        profilesData?.forEach(profile => {
-          userEmails[profile.user_id] = `user${profile.user_id.slice(-4)}@exemplo.com`;
-        });
+        const { data: usersData, error: usersError } = await supabase
+          .from('user_emails')
+          .select('id, email, full_name')
+          .in('id', userIds);
+
+        if (usersError) {
+          console.warn('Não foi possível carregar informações dos usuários:', usersError);
+        } else {
+          usersData?.forEach(user => {
+            userInfo[user.id] = {
+              email: user.email || 'Email não disponível',
+              name: user.full_name || 'Nome não disponível'
+            };
+          });
+        }
       }
 
       const enrichedUserRoles = userRolesData?.map(ur => ({
         ...ur,
-        user_email: userEmails[ur.user_id] || 'Email não encontrado'
+        user_email: userInfo[ur.user_id]?.email || 'Email não encontrado',
+        user_name: userInfo[ur.user_id]?.name || 'Nome não encontrado'
       })) || [];
 
       setRoles(rolesData || []);
@@ -118,23 +125,48 @@ const UserRoleAssignment = ({ project }: UserRoleAssignmentProps) => {
     setIsAssigning(true);
 
     try {
-      // Simular busca de usuário por email
-      // Em um sistema real, você teria uma função ou view para mapear email para user_id
-      // Para demonstração, vamos gerar um ID baseado no email
-      const userId = `user-${userEmail.replace(/[@.]/g, '-')}-${Date.now()}`;
+      // Buscar usuário real por email usando a função criada
+      const { data: userData, error: userError } = await supabase
+        .rpc('get_user_by_email', { user_email: userEmail.trim() });
+
+      if (userError) {
+        console.error('Erro ao buscar usuário:', userError);
+        toast({
+          title: "Erro ao buscar usuário",
+          description: "Erro interno ao buscar o usuário",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (!userData || userData.length === 0) {
+        toast({
+          title: "Usuário não encontrado",
+          description: `Não foi encontrado nenhum usuário com o email ${userEmail}. Verifique se o usuário já está cadastrado no sistema.`,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const user = userData[0];
+      const userId = user.user_id;
 
       // Verificar se o usuário já tem uma role neste projeto
-      const existingAssignment = userRoles.find(ur => ur.user_email === userEmail);
+      const existingAssignment = userRoles.find(ur => ur.user_id === userId);
       
       if (existingAssignment) {
         // Atualizar role existente
         const { error } = await supabase
           .from('user_project_roles')
-          .update({ role_name: selectedRole })
+          .update({ 
+            role_name: selectedRole,
+            updated_at: new Date().toISOString()
+          })
           .eq('id', existingAssignment.id);
 
         if (error) throw error;
 
+        // Atualizar estado local
         setUserRoles(userRoles.map(ur => 
           ur.id === existingAssignment.id 
             ? { ...ur, role_name: selectedRole }
@@ -143,17 +175,19 @@ const UserRoleAssignment = ({ project }: UserRoleAssignmentProps) => {
 
         toast({
           title: "Role atualizada",
-          description: `Role do usuário ${userEmail} foi alterada para ${selectedRole}`,
+          description: `Role do usuário ${user.email} foi alterada para ${selectedRole}`,
         });
       } else {
         // Criar nova atribuição
+        const currentUser = await supabase.auth.getUser();
+        
         const { data, error } = await supabase
           .from('user_project_roles')
           .insert({
             user_id: userId,
             project_id: project.id,
             role_name: selectedRole,
-            assigned_by: (await supabase.auth.getUser()).data.user?.id || ''
+            assigned_by: currentUser.data.user?.id || ''
           })
           .select()
           .single();
@@ -162,14 +196,15 @@ const UserRoleAssignment = ({ project }: UserRoleAssignmentProps) => {
 
         const newUserRole = {
           ...data,
-          user_email: userEmail
+          user_email: user.email,
+          user_name: user.full_name
         };
 
         setUserRoles([...userRoles, newUserRole]);
 
         toast({
           title: "Usuário atribuído",
-          description: `Usuário ${userEmail} foi atribuído à role ${selectedRole}`,
+          description: `Usuário ${user.email} foi atribuído à role ${selectedRole}`,
         });
       }
 
@@ -264,6 +299,13 @@ const UserRoleAssignment = ({ project }: UserRoleAssignmentProps) => {
                 <DialogTitle>Atribuir Usuário à Role</DialogTitle>
               </DialogHeader>
               <div className="space-y-4">
+                <Alert>
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    Digite o email de um usuário que já está cadastrado no sistema. O usuário precisa ter feito login pelo menos uma vez para aparecer na busca.
+                  </AlertDescription>
+                </Alert>
+                
                 <div>
                   <Label htmlFor="userEmail">Email do Usuário</Label>
                   <Input
