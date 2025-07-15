@@ -82,6 +82,8 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
   const [editingRow, setEditingRow] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [showChat, setShowChat] = useState(false);
+  const [unreadMessages, setUnreadMessages] = useState(0);
+  const [lastViewedAt, setLastViewedAt] = useState<string>(new Date().toISOString());
   const { toast } = useToast();
   
   // Usar hook de permissões
@@ -171,6 +173,7 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
   useEffect(() => {
     loadProjectData();
     fetchRows();
+    setupChatSubscription();
     
     // Setup realtime subscription for columns
     const columnsChannel = supabase
@@ -213,6 +216,90 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
       supabase.removeChannel(itemsChannel);
     };
   }, [project.id]);
+
+  const setupChatSubscription = async () => {
+    // Obter usuário atual
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    console.log('Setting up persistent chat subscription for project:', project.id);
+    
+    const chatChannel = supabase
+      .channel(`project-chat-persistent-${project.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'project_chat_messages',
+          filter: `project_id=eq.${project.id}`,
+        },
+        async (payload) => {
+          const newMsg = payload.new as any;
+          console.log('Received new chat message:', newMsg);
+          
+          // Se não for mensagem do usuário atual
+          if (newMsg.user_id !== user.id) {
+            // Incrementar contador de não lidas se o chat estiver fechado
+            if (!showChat) {
+              const messageTime = new Date(newMsg.created_at).toISOString();
+              if (messageTime > lastViewedAt) {
+                setUnreadMessages(prev => prev + 1);
+                
+                // Buscar informações do usuário para a notificação
+                let senderDisplay = `Usuário ${newMsg.user_id.slice(-4)}`;
+                try {
+                  const { data: userInfo } = await supabase
+                    .from('user_emails')
+                    .select('email')
+                    .eq('id', newMsg.user_id)
+                    .maybeSingle();
+                  
+                  if (userInfo?.email) {
+                    senderDisplay = userInfo.email;
+                  }
+                } catch (err) {
+                  console.log('Could not fetch user email for notification');
+                }
+                
+                // Mostrar notificação
+                toast({
+                  title: "💬 Nova mensagem no chat",
+                  description: `${senderDisplay}: ${newMsg.message.substring(0, 60)}${newMsg.message.length > 60 ? '...' : ''}`,
+                  action: (
+                    <button 
+                      onClick={() => setShowChat(true)}
+                      className="text-xs bg-primary text-primary-foreground px-2 py-1 rounded"
+                    >
+                      Abrir Chat
+                    </button>
+                  ),
+                });
+              }
+            }
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(chatChannel);
+    };
+  };
+
+  // Resetar contador quando abrir o chat
+  const handleOpenChat = () => {
+    setShowChat(true);
+    setUnreadMessages(0);
+    setLastViewedAt(new Date().toISOString());
+  };
+
+  // Resetar contador quando fechar o chat
+  const handleCloseChat = () => {
+    setShowChat(false);
+    setUnreadMessages(0);
+    setLastViewedAt(new Date().toISOString());
+  };
 
   const calculateRow = (row: ProjectRow): ProjectRow => {
     const qtd = row.qtd || 0;
@@ -511,11 +598,23 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
                 </Button>
               )}
               
-              <Dialog open={showChat} onOpenChange={setShowChat}>
+              <Dialog open={showChat} onOpenChange={handleCloseChat}>
                 <DialogTrigger asChild>
-                  <Button variant="default" className="shadow-md bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70">
+                  <Button 
+                    onClick={handleOpenChat}
+                    variant="default" 
+                    className="shadow-md bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70 relative"
+                  >
                     <MessageCircle className="h-4 w-4 mr-2" />
                     Chat do Projeto
+                    {unreadMessages > 0 && (
+                      <Badge 
+                        variant="destructive" 
+                        className="absolute -top-2 -right-2 h-5 w-5 p-0 flex items-center justify-center text-xs animate-pulse"
+                      >
+                        {unreadMessages > 99 ? '99+' : unreadMessages}
+                      </Badge>
+                    )}
                   </Button>
                 </DialogTrigger>
                 <DialogContent className="max-w-5xl max-h-[90vh] w-[95vw]">
