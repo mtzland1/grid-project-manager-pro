@@ -67,48 +67,43 @@ export const useUserPermissions = (projectId?: string) => {
           .select('column_key')
           .eq('project_id', projectId);
 
-        // Se é admin, todas as colunas têm permissão de edit
+        // Para admins, todas as colunas têm permissão de edit
         if (isAdmin) {
           allColumns?.forEach(col => {
             columnPermissions[col.column_key] = 'edit';
           });
         } else {
           // Para colaboradores, começar com 'edit' como padrão para todas as colunas
-          // Isso garante que possam editar colunas novas
-          if (projectRole === 'collaborator') {
-            allColumns?.forEach(col => {
-              columnPermissions[col.column_key] = 'edit';
-            });
-          } else {
-            // Para outros roles, começar com 'view' por padrão
-            allColumns?.forEach(col => {
-              columnPermissions[col.column_key] = 'view';
-            });
-          }
+          allColumns?.forEach(col => {
+            columnPermissions[col.column_key] = 'edit';
+          });
 
-          // Agora buscar permissões específicas definidas e sobrescrever o padrão
+          // Buscar permissões específicas definidas e sobrescrever apenas se explicitamente restritivas
           const { data: rolePermissions } = await supabase
             .from('role_column_permissions')
             .select('column_key, permission_level')
             .eq('project_id', projectId)
             .eq('role_name', projectRole);
 
-          // Aplicar permissões específicas que foram explicitamente definidas
+          // Aplicar apenas permissões específicas que foram explicitamente definidas como restritivas
           rolePermissions?.forEach(perm => {
-            columnPermissions[perm.column_key] = perm.permission_level;
+            // Só sobrescrever se for mais restritivo que 'edit'
+            if (perm.permission_level === 'none' || perm.permission_level === 'view') {
+              columnPermissions[perm.column_key] = perm.permission_level;
+            }
           });
         }
       }
 
-      // Determinar se pode editar baseado nas permissões de coluna
-      const hasEditPermission = isAdmin || Object.values(columnPermissions).some(p => p === 'edit');
+      // Colaboradores sempre podem editar por padrão (a menos que explicitamente restrito)
+      const canEdit = isAdmin || projectRole === 'collaborator' || Object.values(columnPermissions).some(p => p === 'edit');
 
       setPermissions({
         role: userRole,
         projectRole,
-        canEdit: hasEditPermission,
+        canEdit,
         canDelete: isAdmin,
-        canCreate: isAdmin,
+        canCreate: isAdmin || projectRole === 'collaborator',
         columnPermissions
       });
 
@@ -121,7 +116,7 @@ export const useUserPermissions = (projectId?: string) => {
 
   const canViewColumn = (columnKey: string): boolean => {
     const permission = permissions.columnPermissions[columnKey];
-    // Se não há permissão definida, considerar como 'view' por padrão
+    // Se não há permissão definida, colaboradores podem ver por padrão
     if (permission === undefined) {
       return true;
     }
@@ -131,8 +126,9 @@ export const useUserPermissions = (projectId?: string) => {
   const canEditColumn = (columnKey: string): boolean => {
     const permission = permissions.columnPermissions[columnKey];
     // Para colaboradores, se não há permissão definida, permite edição por padrão
-    if (permission === undefined && permissions.projectRole === 'collaborator') {
-      return true;
+    // Para outras roles, verifica se tem permissão explícita de edição
+    if (permission === undefined) {
+      return permissions.projectRole === 'collaborator' || permissions.role === 'admin';
     }
     return permission === 'edit';
   };
