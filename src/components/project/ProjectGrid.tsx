@@ -170,7 +170,7 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
     fetchRows();
     
     // Setup realtime subscription for columns
-    const columnsChannel = supabase
+    const channel = supabase
       .channel(`project-columns-${project.id}`)
       .on(
         'postgres_changes',
@@ -187,27 +187,8 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
       )
       .subscribe();
 
-    // Setup realtime subscription for project items (rows)
-    const itemsChannel = supabase
-      .channel(`project-items-${project.id}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'project_items',
-          filter: `project_id=eq.${project.id}`,
-        },
-        () => {
-          // Recarregar dados quando houver mudanças
-          fetchRows();
-        }
-      )
-      .subscribe();
-
     return () => {
-      supabase.removeChannel(columnsChannel);
-      supabase.removeChannel(itemsChannel);
+      supabase.removeChannel(channel);
     };
   }, [project.id]);
 

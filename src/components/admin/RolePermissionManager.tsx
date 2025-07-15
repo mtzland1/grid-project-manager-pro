@@ -362,8 +362,7 @@ const [roles, setRoles] = useState<CustomRole[]>([]);
         .from('custom_roles')
         .select('name');
 
-      // Apenas admin e collaborator devem receber permissões padrão para novas colunas
-      const defaultRoles = ['admin', 'collaborator'];
+      const defaultRoles = ['admin', 'collaborator', 'orcamentista', 'apontador'];
       const allRoleNames = [
         ...defaultRoles,
         ...(allRoles?.map(r => r.name) || [])
