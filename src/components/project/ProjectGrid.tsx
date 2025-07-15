@@ -286,72 +286,31 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
   };
 
   const handleUpdateRow = async (rowId: string, updates: Partial<ProjectRow>) => {
-    console.log('Updating row:', rowId, 'with updates:', updates);
-    console.log('Current permissions:', permissions);
+    console.log('Starting update for row:', rowId, 'with updates:', updates);
     
-    // Colunas estáticas do sistema
-    const staticColumns = ['id', 'project_id', 'descricao', 'qtd', 'unidade', 'mat_uni_pr', 'desconto', 
-                          'cc_mat_uni', 'cc_mat_total', 'cc_mo_uni', 'cc_mo_total', 'ipi', 'cc_pis_cofins',
-                          'cc_icms_pr', 'cc_icms_revenda', 'cc_lucro_porcentagem', 'cc_lucro_valor', 
-                          'cc_encargos_valor', 'cc_total', 'vlr_total_venda', 'vlr_total_estimado', 
-                          'created_at', 'updated_at', 'distribuidor'];
-
-    // Verificação de permissões mais simples e clara
-    const isAdmin = permissions.role === 'admin' || permissions.projectRole === 'admin';
-    const isCollaborator = permissions.role === 'collaborator' || permissions.projectRole === 'collaborator';
-    
-    // Se é admin, pode tudo
-    if (isAdmin) {
-      console.log('User is admin, allowing all updates');
-    }
-    // Se é colaborador, verificar permissões específicas das colunas
-    else if (isCollaborator) {
-      const hasPermissionForAllColumns = Object.keys(updates).every(columnKey => {
-        if (staticColumns.includes(columnKey)) {
-          const canEdit = canEditColumn(columnKey);
-          console.log(`Column ${columnKey} permission:`, canEdit);
-          return canEdit;
-        } else {
-          // Para colunas dinâmicas, colaboradores podem editar por padrão
-          const canEdit = canEditColumn(columnKey);
-          console.log(`Dynamic column ${columnKey} permission:`, canEdit);
-          return canEdit;
-        }
-      });
-
-      if (!hasPermissionForAllColumns) {
-        console.log('Permission denied for some columns');
-        toast({
-          title: "Acesso negado",
-          description: "Você não tem permissão para editar essas colunas",
-          variant: "destructive",
-        });
-        return;
-      }
-      console.log('Collaborator has permission for all columns being updated');
-    }
-    // Outros roles precisam de verificação específica
-    else {
-      console.log('User is not admin or collaborator, checking specific permissions');
-      const hasPermissionForAllColumns = Object.keys(updates).every(columnKey => {
-        const canEdit = canEditColumn(columnKey);
-        console.log(`Column ${columnKey} permission for role ${permissions.projectRole}:`, canEdit);
-        return canEdit;
-      });
-
-      if (!hasPermissionForAllColumns) {
-        console.log('Permission denied for updates:', Object.keys(updates));
-        toast({
-          title: "Acesso negado",
-          description: "Você não tem permissão para editar essas colunas",
-          variant: "destructive",
-        });
-        return;
-      }
-    }
-
     try {
-      // Separate static columns from dynamic columns
+      // Verificação de permissão simplificada
+      const isAdmin = permissions.role === 'admin' || permissions.projectRole === 'admin';
+      const isCollaborator = permissions.role === 'collaborator' || permissions.projectRole === 'collaborator';
+      
+      if (!isAdmin && !isCollaborator) {
+        console.log('User does not have permission to edit');
+        toast({
+          title: "Acesso negado",
+          description: "Você não tem permissão para editar",
+          variant: "destructive",
+        });
+        return;
+      }
+      
+      // Colunas estáticas do sistema
+      const staticColumns = ['id', 'project_id', 'descricao', 'qtd', 'unidade', 'mat_uni_pr', 'desconto', 
+                            'cc_mat_uni', 'cc_mat_total', 'cc_mo_uni', 'cc_mo_total', 'ipi', 'cc_pis_cofins',
+                            'cc_icms_pr', 'cc_icms_revenda', 'cc_lucro_porcentagem', 'cc_lucro_valor', 
+                            'cc_encargos_valor', 'cc_total', 'vlr_total_venda', 'vlr_total_estimado', 
+                            'created_at', 'updated_at', 'distribuidor'];
+
+      // Separar colunas estáticas das dinâmicas
       const staticUpdates: any = {};
       const dynamicUpdates: any = {};
       
@@ -366,27 +325,24 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
       console.log('Static updates:', staticUpdates);
       console.log('Dynamic updates:', dynamicUpdates);
 
-      // Get current row to merge dynamic data
-      const { data: currentRow } = await supabase
-        .from('project_items')
-        .select('dynamic_data')
-        .eq('id', rowId)
-        .single();
-
-      const currentDynamicData = (currentRow?.dynamic_data as Record<string, any>) || {};
-      const mergedDynamicData = { ...currentDynamicData, ...dynamicUpdates };
-
-      console.log('Current dynamic data:', currentDynamicData);
-      console.log('Merged dynamic data:', mergedDynamicData);
-
-      // Prepare the update object
+      // Preparar dados para atualização
       const updateData: any = { ...staticUpdates };
+      
+      // Se há atualizações dinâmicas, buscar dados atuais e fazer merge
       if (Object.keys(dynamicUpdates).length > 0) {
-        updateData.dynamic_data = mergedDynamicData;
+        const { data: currentRow } = await supabase
+          .from('project_items')
+          .select('dynamic_data')
+          .eq('id', rowId)
+          .single();
+
+        const currentDynamicData = (currentRow?.dynamic_data as Record<string, any>) || {};
+        updateData.dynamic_data = { ...currentDynamicData, ...dynamicUpdates };
       }
 
       console.log('Final update data:', updateData);
 
+      // Executar a atualização
       const { error } = await supabase
         .from('project_items')
         .update(updateData)
@@ -404,6 +360,7 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
 
       console.log('Row updated successfully');
 
+      // Atualizar estado local
       setRows(rows.map(row => 
         row.id === rowId 
           ? calculateRow({ ...row, ...updates })
@@ -659,12 +616,6 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
                           </Button>
                         </div>
                         {visibleColumns.map((column) => {
-                          // Determinar se pode editar esta coluna específica
-                          const staticColumns = ['descricao', 'qtd', 'unidade', 'mat_uni_pr', 'desconto', 
-                                                'cc_mat_uni', 'cc_mat_total', 'cc_mo_uni', 'cc_mo_total', 'ipi', 'cc_pis_cofins',
-                                                'cc_icms_pr', 'cc_icms_revenda', 'cc_lucro_porcentagem', 'cc_lucro_valor', 
-                                                'cc_encargos_valor', 'cc_total', 'vlr_total_venda', 'vlr_total_estimado', 'distribuidor'];
-                          
                           const canEditThisColumn = canEditColumn(column.column_key);
 
                           return (
@@ -678,7 +629,7 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
                                   type={column.column_type === 'number' || column.column_type === 'currency' || column.column_type === 'percentage' ? 'number' : 'text'}
                                   value={row[column.column_key as keyof ProjectRow] || ''}
                                   onChange={(e) => {
-                                    // Atualizar estado local imediatamente para evitar problemas de digitação
+                                    // Atualizar estado local imediatamente
                                     const value = column.column_type === 'number' || column.column_type === 'currency' || column.column_type === 'percentage' 
                                       ? Number(e.target.value) || 0
                                       : e.target.value;
