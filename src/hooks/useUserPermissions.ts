@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -60,41 +61,34 @@ export const useUserPermissions = (projectId?: string) => {
       let columnPermissions: { [key: string]: 'none' | 'view' | 'edit' } = {};
       
       if (projectId) {
-        const { data: rolePermissions } = await supabase
-          .from('role_column_permissions')
-          .select('column_key, permission_level')
-          .eq('project_id', projectId)
-          .eq('role_name', projectRole);
+        // Primeiro, obter todas as colunas do projeto
+        const { data: allColumns } = await supabase
+          .from('project_columns')
+          .select('column_key')
+          .eq('project_id', projectId);
 
         // Se é admin, todas as colunas têm permissão de edit
         if (isAdmin) {
-          const { data: columns } = await supabase
-            .from('project_columns')
-            .select('column_key')
-            .eq('project_id', projectId);
-
-          columns?.forEach(col => {
+          allColumns?.forEach(col => {
             columnPermissions[col.column_key] = 'edit';
           });
         } else {
-          // Para outros roles, usar as permissões definidas
+          // Para outros roles, começar com 'view' como padrão para todas as colunas
+          allColumns?.forEach(col => {
+            columnPermissions[col.column_key] = 'view';
+          });
+
+          // Agora buscar permissões específicas definidas e sobrescrever o padrão
+          const { data: rolePermissions } = await supabase
+            .from('role_column_permissions')
+            .select('column_key, permission_level')
+            .eq('project_id', projectId)
+            .eq('role_name', projectRole);
+
+          // Aplicar permissões específicas que foram explicitamente definidas
           rolePermissions?.forEach(perm => {
             columnPermissions[perm.column_key] = perm.permission_level;
           });
-          
-          // Para colaboradores, dar permissão de edição em colunas que não têm permissão específica definida
-          if (projectRole === 'collaborator' || projectRole === 'orcamentista') {
-            const { data: allColumns } = await supabase
-              .from('project_columns')
-              .select('column_key')
-              .eq('project_id', projectId);
-
-            allColumns?.forEach(col => {
-              if (!columnPermissions[col.column_key]) {
-                columnPermissions[col.column_key] = 'edit';
-              }
-            });
-          }
         }
       }
 
@@ -119,11 +113,20 @@ export const useUserPermissions = (projectId?: string) => {
 
   const canViewColumn = (columnKey: string): boolean => {
     const permission = permissions.columnPermissions[columnKey];
+    // Se não há permissão definida, considerar como 'view' por padrão
+    if (permission === undefined) {
+      return true;
+    }
     return permission === 'view' || permission === 'edit';
   };
 
   const canEditColumn = (columnKey: string): boolean => {
-    return permissions.columnPermissions[columnKey] === 'edit';
+    const permission = permissions.columnPermissions[columnKey];
+    // Se não há permissão definida, considerar como 'view' por padrão (não pode editar)
+    if (permission === undefined) {
+      return false;
+    }
+    return permission === 'edit';
   };
 
   return {
