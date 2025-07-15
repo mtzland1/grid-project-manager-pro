@@ -117,8 +117,13 @@ const ProjectChat = ({ project }: ProjectChatProps) => {
         async (payload) => {
           const newMsg = payload.new as ChatMessage;
           
+          // Evitar duplicatas - só adicionar se não for do usuário atual
+          if (newMsg.user_id === currentUserId) {
+            return; // Mensagem já foi adicionada localmente
+          }
+          
           // Buscar email do usuário para mensagens em tempo real
-          let userDisplay = newMsg.user_id === currentUserId ? 'Você' : `Usuário ${newMsg.user_id.slice(-4)}`;
+          let userDisplay = `Usuário ${newMsg.user_id.slice(-4)}`;
           
           try {
             const { data: userInfo } = await supabase
@@ -127,7 +132,7 @@ const ProjectChat = ({ project }: ProjectChatProps) => {
               .eq('id', newMsg.user_id)
               .single();
             
-            if (userInfo && newMsg.user_id !== currentUserId) {
+            if (userInfo) {
               userDisplay = userInfo.email;
             }
           } catch (err) {
@@ -135,6 +140,10 @@ const ProjectChat = ({ project }: ProjectChatProps) => {
           }
           
           setMessages(prev => {
+            // Verificar se a mensagem já existe
+            const exists = prev.some(msg => msg.id === newMsg.id);
+            if (exists) return prev;
+            
             const newMessages = [...prev, {
               ...newMsg,
               user_email: userDisplay

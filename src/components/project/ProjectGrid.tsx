@@ -166,6 +166,28 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
   useEffect(() => {
     loadProjectData();
     fetchRows();
+    
+    // Setup realtime subscription for columns
+    const channel = supabase
+      .channel(`project-columns-${project.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'project_columns',
+          filter: `project_id=eq.${project.id}`,
+        },
+        () => {
+          // Recarregar colunas quando houver mudanças
+          loadProjectData();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [project.id]);
 
   const calculateRow = (row: ProjectRow): ProjectRow => {

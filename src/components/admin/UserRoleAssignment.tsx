@@ -223,6 +223,39 @@ const UserRoleAssignment = ({ project }: UserRoleAssignmentProps) => {
     }
   };
 
+  const updateUserRole = async (userRoleId: string, newRole: string, userEmail: string) => {
+    try {
+      const { error } = await supabase
+        .from('user_project_roles')
+        .update({ 
+          role_name: newRole,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', userRoleId);
+
+      if (error) throw error;
+
+      // Atualizar estado local
+      setUserRoles(userRoles.map(ur => 
+        ur.id === userRoleId 
+          ? { ...ur, role_name: newRole }
+          : ur
+      ));
+
+      toast({
+        title: "Role atualizada",
+        description: `Role do usuário ${userEmail} foi alterada para ${newRole}`,
+      });
+    } catch (error) {
+      console.error('Error updating user role:', error);
+      toast({
+        title: "Erro ao atualizar role",
+        description: "Não foi possível atualizar a role do usuário",
+        variant: "destructive",
+      });
+    }
+  };
+
   const removeUserFromProject = async (userRoleId: string, userEmail: string) => {
     try {
       const { error } = await supabase
@@ -386,14 +419,62 @@ const UserRoleAssignment = ({ project }: UserRoleAssignmentProps) => {
                         </Badge>
                       </div>
                       
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => removeUserFromProject(userRole.id, userRole.user_email || '')}
-                        className="text-red-600 hover:text-red-700"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                      <div className="flex gap-2">
+                        <Dialog>
+                          <DialogTrigger asChild>
+                            <Button size="sm" variant="outline">
+                              Editar Role
+                            </Button>
+                          </DialogTrigger>
+                          <DialogContent>
+                            <DialogHeader>
+                              <DialogTitle>Editar Role do Usuário</DialogTitle>
+                            </DialogHeader>
+                            <div className="space-y-4">
+                              <div>
+                                <Label>Usuário</Label>
+                                <Input value={userRole.user_email} disabled />
+                              </div>
+                              <div>
+                                <Label>Nova Role</Label>
+                                <Select 
+                                  defaultValue={userRole.role_name}
+                                  onValueChange={(newRole) => {
+                                    // Atualizar role do usuário
+                                    updateUserRole(userRole.id, newRole, userRole.user_email || '');
+                                  }}
+                                >
+                                  <SelectTrigger>
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {roles.map((role) => (
+                                      <SelectItem key={role.id} value={role.name}>
+                                        <div className="flex items-center gap-2">
+                                          <div 
+                                            className="w-3 h-3 rounded-full" 
+                                            style={{ backgroundColor: role.color }}
+                                          />
+                                          {role.name}
+                                        </div>
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            </div>
+                          </DialogContent>
+                        </Dialog>
+                        
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => removeUserFromProject(userRole.id, userRole.user_email || '')}
+                          className="text-red-600 hover:text-red-700"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </div>
                   ))}
                 </div>
