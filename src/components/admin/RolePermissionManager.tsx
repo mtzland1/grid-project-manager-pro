@@ -47,7 +47,8 @@ interface RolePermissionManagerProps {
 }
 
 const RolePermissionManager = ({ project }: RolePermissionManagerProps) => {
-  const [roles, setRoles] = useState<CustomRole[]>([]);
+const [roles, setRoles] = useState<CustomRole[]>([]);
+  const [customRoles, setCustomRoles] = useState<CustomRole[]>([]);
   const [columns, setColumns] = useState<ProjectColumn[]>([]);
   const [permissions, setPermissions] = useState<RolePermission[]>([]);
   const [loading, setLoading] = useState(true);
@@ -72,13 +73,23 @@ const RolePermissionManager = ({ project }: RolePermissionManagerProps) => {
 
   const loadData = async () => {
     try {
-      // Carregar roles
-      const { data: rolesData, error: rolesError } = await supabase
+      // Carregar roles customizadas
+      const { data: customRolesData, error: rolesError } = await supabase
         .from('custom_roles')
         .select('*')
         .order('name');
 
       if (rolesError) throw rolesError;
+
+      // Combinar roles padrão com customizadas
+      const defaultRoles = [
+        { id: 'admin', name: 'admin', description: 'Administrador', color: '#ef4444' },
+        { id: 'collaborator', name: 'collaborator', description: 'Colaborador', color: '#3b82f6' },
+        { id: 'orcamentista', name: 'orcamentista', description: 'Orçamentista', color: '#10b981' },
+        { id: 'apontador', name: 'apontador', description: 'Apontador', color: '#f59e0b' }
+      ];
+
+      const allRoles = [...defaultRoles, ...(customRolesData || [])];
 
       // Carregar colunas do projeto
       const { data: columnsData, error: columnsError } = await supabase
@@ -103,12 +114,13 @@ const RolePermissionManager = ({ project }: RolePermissionManagerProps) => {
 
       if (permissionsError) throw permissionsError;
 
-      setRoles(rolesData || []);
+      setRoles(allRoles);
+      setCustomRoles(customRolesData || []);
       setColumns(columnsData || []);
       setPermissions(permissionsData || []);
 
-      if (rolesData && rolesData.length > 0 && !selectedRole) {
-        setSelectedRole(rolesData[0].name);
+      if (allRoles && allRoles.length > 0 && !selectedRole) {
+        setSelectedRole(allRoles[0].name);
       }
     } catch (error) {
       console.error('Error loading data:', error);
@@ -203,40 +215,39 @@ const RolePermissionManager = ({ project }: RolePermissionManagerProps) => {
 
   const updatePermission = async (roleName: string, columnKey: string, level: 'none' | 'view' | 'edit') => {
     try {
-      const existingPermission = permissions.find(p => 
-        p.role_name === roleName && p.column_key === columnKey
-      );
+      if (level === 'none') {
+        // Se a permissão for 'none', deletar o registro existente
+        const existingPermission = permissions.find(p => 
+          p.role_name === roleName && p.column_key === columnKey
+        );
 
-      if (existingPermission) {
-        // Atualizar permissão existente
+        if (existingPermission) {
+          const { error } = await supabase
+            .from('role_column_permissions')
+            .delete()
+            .eq('id', existingPermission.id);
+
+          if (error) throw error;
+
+          setPermissions(permissions.filter(p => p.id !== existingPermission.id));
+        }
+      } else {
+        // Para 'view' e 'edit', fazer upsert
         const { error } = await supabase
           .from('role_column_permissions')
-          .update({ permission_level: level })
-          .eq('id', existingPermission.id);
-
-        if (error) throw error;
-
-        setPermissions(permissions.map(p => 
-          p.id === existingPermission.id 
-            ? { ...p, permission_level: level }
-            : p
-        ));
-      } else {
-        // Criar nova permissão
-        const { data, error } = await supabase
-          .from('role_column_permissions')
-          .insert({
+          .upsert({
             role_name: roleName,
             project_id: project.id,
             column_key: columnKey,
             permission_level: level
-          })
-          .select()
-          .single();
+          }, {
+            onConflict: 'role_name,project_id,column_key'
+          });
 
         if (error) throw error;
 
-        setPermissions([...permissions, data]);
+        // Recarregar permissões para atualizar o estado
+        await loadData();
       }
 
       toast({
@@ -276,15 +287,37 @@ const RolePermissionManager = ({ project }: RolePermissionManagerProps) => {
 
       if (error) throw error;
 
+      // Criar permissões 'view' para todas as colunas existentes
+      const permissionsToCreate = columns.map(column => ({
+        project_id: project.id,
+        role_name: data.name,
+        column_key: column.column_key,
+        permission_level: 'view' as const
+      }));
+
+      if (permissionsToCreate.length > 0) {
+        const { error: permissionsError } = await supabase
+          .from('role_column_permissions')
+          .insert(permissionsToCreate);
+
+        if (permissionsError) {
+          console.error('Error creating default permissions for new role:', permissionsError);
+        }
+      }
+
+      setCustomRoles([...customRoles, data]);
       setRoles([...roles, data]);
       setNewRoleName('');
       setNewRoleDescription('');
       setNewRoleColor('#6366f1');
       setShowCreateRole(false);
+      
+      // Recarregar dados para mostrar as novas permissões
+      await loadData();
 
       toast({
         title: "Role criada",
-        description: `Role "${data.name}" foi criada com sucesso`,
+        description: `Role "${data.name}" foi criada com permissões automáticas`,
       });
     } catch (error) {
       console.error('Error creating role:', error);
@@ -338,13 +371,24 @@ const RolePermissionManager = ({ project }: RolePermissionManagerProps) => {
       // Remover duplicatas
       const uniqueRoles = [...new Set(allRoleNames)];
 
-      // Criar permissões para cada role
-      const permissionsToCreate = uniqueRoles.map(roleName => ({
-        project_id: project.id,
-        role_name: roleName,
-        column_key: data.column_key,
-        permission_level: 'view' as const
-      }));
+      // Verificar permissões existentes para evitar duplicatas
+      const { data: existingPermissions } = await supabase
+        .from('role_column_permissions')
+        .select('role_name')
+        .eq('project_id', project.id)
+        .eq('column_key', data.column_key);
+
+      const existingRoles = new Set(existingPermissions?.map(p => p.role_name) || []);
+
+      // Criar permissões apenas para roles que não têm permissão definida
+      const permissionsToCreate = uniqueRoles
+        .filter(roleName => !existingRoles.has(roleName))
+        .map(roleName => ({
+          project_id: project.id,
+          role_name: roleName,
+          column_key: data.column_key,
+          permission_level: 'view' as const
+        }));
 
       if (permissionsToCreate.length > 0) {
         const { error: permissionsError } = await supabase
@@ -441,6 +485,7 @@ const RolePermissionManager = ({ project }: RolePermissionManagerProps) => {
       if (roleError) throw roleError;
 
       // Atualizar estado local
+      setCustomRoles(customRoles.filter(r => r.name !== roleName));
       setRoles(roles.filter(r => r.name !== roleName));
       setPermissions(permissions.filter(p => p.role_name !== roleName));
       
