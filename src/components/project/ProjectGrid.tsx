@@ -43,6 +43,7 @@ interface ProjectRow {
   distribuidor: string;
   created_at?: string;
   updated_at?: string;
+  [key: string]: any; // Permite propriedades dinâmicas
 }
 
 interface ProjectColumn {
@@ -146,10 +147,11 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
         return;
       }
 
-      // Garantir que todos os items tenham a propriedade distribuidor
+      // Merge static columns with dynamic data
       setRows((data || []).map(item => ({
         ...item,
-        distribuidor: item.distribuidor || ''
+        distribuidor: item.distribuidor || '',
+        ...((item.dynamic_data as Record<string, any>) || {})
       })));
     } catch (err) {
       console.error('Error fetching rows:', err);
@@ -221,11 +223,13 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
       const newRow = {
         ...defaultRow,
         project_id: project.id,
+        descricao: 'Nova linha',
+        dynamic_data: {}
       };
 
       const { data, error } = await supabase
         .from('project_items')
-        .insert([newRow])
+        .insert(newRow)
         .select()
         .maybeSingle();
 
@@ -273,9 +277,43 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
     }
 
     try {
+      // Separate static columns from dynamic columns
+      const staticColumns = ['id', 'project_id', 'descricao', 'qtd', 'unidade', 'mat_uni_pr', 'desconto', 
+                            'cc_mat_uni', 'cc_mat_total', 'cc_mo_uni', 'cc_mo_total', 'ipi', 'cc_pis_cofins',
+                            'cc_icms_pr', 'cc_icms_revenda', 'cc_lucro_porcentagem', 'cc_lucro_valor', 
+                            'cc_encargos_valor', 'cc_total', 'vlr_total_venda', 'vlr_total_estimado', 
+                            'created_at', 'updated_at', 'distribuidor'];
+      
+      const staticUpdates: any = {};
+      const dynamicUpdates: any = {};
+      
+      Object.entries(updates).forEach(([key, value]) => {
+        if (staticColumns.includes(key)) {
+          staticUpdates[key] = value;
+        } else {
+          dynamicUpdates[key] = value;
+        }
+      });
+
+      // Get current row to merge dynamic data
+      const { data: currentRow } = await supabase
+        .from('project_items')
+        .select('dynamic_data')
+        .eq('id', rowId)
+        .single();
+
+      const currentDynamicData = (currentRow?.dynamic_data as Record<string, any>) || {};
+      const mergedDynamicData = { ...currentDynamicData, ...dynamicUpdates };
+
+      // Prepare the update object
+      const updateData: any = { ...staticUpdates };
+      if (Object.keys(dynamicUpdates).length > 0) {
+        updateData.dynamic_data = mergedDynamicData;
+      }
+
       const { error } = await supabase
         .from('project_items')
-        .update(updates)
+        .update(updateData)
         .eq('id', rowId);
 
       if (error) {

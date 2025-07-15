@@ -175,6 +175,7 @@ export type Database = {
           desconto: number
           descricao: string
           distribuidor: string | null
+          dynamic_data: Json | null
           id: string
           ipi: number
           mat_uni_pr: number
@@ -201,6 +202,7 @@ export type Database = {
           desconto?: number
           descricao: string
           distribuidor?: string | null
+          dynamic_data?: Json | null
           id?: string
           ipi?: number
           mat_uni_pr?: number
@@ -227,6 +229,7 @@ export type Database = {
           desconto?: number
           descricao?: string
           distribuidor?: string | null
+          dynamic_data?: Json | null
           id?: string
           ipi?: number
           mat_uni_pr?: number
