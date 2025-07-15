@@ -54,7 +54,7 @@ export const useUserPermissions = (projectId?: string) => {
         }
       }
 
-      // Determinar permissões baseadas no role
+      // Determinar permissões baseadas no role (apenas admin e collaborator)
       const isAdmin = userRole === 'admin' || projectRole === 'admin';
       const isCollaborator = projectRole === 'collaborator' || userRole === 'collaborator';
       
@@ -91,17 +91,6 @@ export const useUserPermissions = (projectId?: string) => {
             if (perm.permission_level === 'none' || perm.permission_level === 'view') {
               columnPermissions[perm.column_key] = perm.permission_level;
             }
-          });
-        } else {
-          // Para outros roles, usar apenas permissões explícitas
-          const { data: rolePermissions } = await supabase
-            .from('role_column_permissions')
-            .select('column_key, permission_level')
-            .eq('project_id', projectId)
-            .eq('role_name', projectRole);
-
-          rolePermissions?.forEach(perm => {
-            columnPermissions[perm.column_key] = perm.permission_level;
           });
         }
       }

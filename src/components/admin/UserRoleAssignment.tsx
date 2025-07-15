@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
@@ -54,7 +55,7 @@ const UserRoleAssignment = ({ project }: UserRoleAssignmentProps) => {
 
   const loadData = async () => {
     try {
-      // Carregar roles
+      // Carregar apenas roles customizadas (admin e collaborator são padrão)
       const { data: rolesData, error: rolesError } = await supabase
         .from('custom_roles')
         .select('*')
@@ -283,6 +284,7 @@ const UserRoleAssignment = ({ project }: UserRoleAssignmentProps) => {
 
   const getRoleColor = (roleName: string) => {
     if (roleName === 'collaborator') return '#3b82f6';
+    if (roleName === 'admin') return '#dc2626';
     const role = roles.find(r => r.name === roleName);
     return role?.color || '#6366f1';
   };
@@ -300,6 +302,16 @@ const UserRoleAssignment = ({ project }: UserRoleAssignmentProps) => {
     return roleGroups;
   };
 
+  const getAvailableRoles = () => {
+    // Retornar roles padrão + roles customizadas
+    const defaultRoles = [
+      { name: 'admin', color: '#dc2626' },
+      { name: 'collaborator', color: '#3b82f6' }
+    ];
+    
+    return [...defaultRoles, ...roles.map(r => ({ name: r.name, color: r.color }))];
+  };
+
   if (loading) {
     return (
       <Card>
@@ -311,6 +323,7 @@ const UserRoleAssignment = ({ project }: UserRoleAssignmentProps) => {
   }
 
   const roleGroups = getRolesByName();
+  const availableRoles = getAvailableRoles();
 
   return (
     <Card>
@@ -357,18 +370,8 @@ const UserRoleAssignment = ({ project }: UserRoleAssignmentProps) => {
                       <SelectValue placeholder="Selecione uma role" />
                     </SelectTrigger>
                     <SelectContent>
-                      {/* Sempre incluir collaborator como opção */}
-                      <SelectItem value="collaborator">
-                        <div className="flex items-center gap-2">
-                          <div 
-                            className="w-3 h-3 rounded-full" 
-                            style={{ backgroundColor: '#3b82f6' }}
-                          />
-                          collaborator
-                        </div>
-                      </SelectItem>
-                      {roles.map((role) => (
-                        <SelectItem key={role.id} value={role.name}>
+                      {availableRoles.map((role) => (
+                        <SelectItem key={role.name} value={role.name}>
                           <div className="flex items-center gap-2">
                             <div 
                               className="w-3 h-3 rounded-full" 
@@ -451,7 +454,6 @@ const UserRoleAssignment = ({ project }: UserRoleAssignmentProps) => {
                                 <Select 
                                   defaultValue={userRole.role_name}
                                   onValueChange={(newRole) => {
-                                    // Atualizar role do usuário
                                     updateUserRole(userRole.id, newRole, userRole.user_email || '');
                                   }}
                                 >
@@ -459,18 +461,8 @@ const UserRoleAssignment = ({ project }: UserRoleAssignmentProps) => {
                                     <SelectValue />
                                   </SelectTrigger>
                                   <SelectContent>
-                                    {/* Sempre incluir collaborator como opção */}
-                                    <SelectItem value="collaborator">
-                                      <div className="flex items-center gap-2">
-                                        <div 
-                                          className="w-3 h-3 rounded-full" 
-                                          style={{ backgroundColor: '#3b82f6' }}
-                                        />
-                                        collaborator
-                                      </div>
-                                    </SelectItem>
-                                    {roles.map((role) => (
-                                      <SelectItem key={role.id} value={role.name}>
+                                    {availableRoles.map((role) => (
+                                      <SelectItem key={role.name} value={role.name}>
                                         <div className="flex items-center gap-2">
                                           <div 
                                             className="w-3 h-3 rounded-full" 
@@ -518,17 +510,17 @@ const UserRoleAssignment = ({ project }: UserRoleAssignmentProps) => {
               </div>
               <div className="text-sm text-green-700">Roles Ativas</div>
             </div>
-            <div className="text-center p-3 bg-purple-50 rounded-lg">
-              <div className="text-2xl font-bold text-purple-600">
+            <div className="text-center p-3 bg-red-50 rounded-lg">
+              <div className="text-2xl font-bold text-red-600">
                 {roleGroups['admin']?.length || 0}
               </div>
-              <div className="text-sm text-purple-700">Administradores</div>
+              <div className="text-sm text-red-700">Administradores</div>
             </div>
-            <div className="text-center p-3 bg-orange-50 rounded-lg">
-              <div className="text-2xl font-bold text-orange-600">
-                {roleGroups['apontador']?.length || 0}
+            <div className="text-center p-3 bg-blue-50 rounded-lg">
+              <div className="text-2xl font-bold text-blue-600">
+                {roleGroups['collaborator']?.length || 0}
               </div>
-              <div className="text-sm text-orange-700">Apontadores</div>
+              <div className="text-sm text-blue-700">Colaboradores</div>
             </div>
           </div>
         </div>
