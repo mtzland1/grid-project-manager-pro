@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
-import { Search, Plus, Edit, Trash2, LogOut, FolderOpen, Settings, Users } from 'lucide-react';
+import { Search, Plus, Edit, Trash2, LogOut, FolderOpen, Settings, Users, Copy } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import ProjectGrid from '@/components/project/ProjectGrid';
 import RolePermissionManager from '@/components/admin/RolePermissionManager';
@@ -184,6 +184,111 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
       fetchProjects();
     } catch (err) {
       console.error('Error deleting project:', err);
+    }
+  };
+
+  const handleCloneProject = async (project: Project) => {
+    const newName = prompt(`Digite o nome do novo projeto (clonado de "${project.name}"):`);
+    if (!newName?.trim()) return;
+
+    try {
+      // 1. Criar novo projeto
+      const { data: newProject, error: projectError } = await supabase
+        .from('projects')
+        .insert([{
+          name: newName.trim(),
+          created_by: user.id,
+        }])
+        .select()
+        .single();
+
+      if (projectError) throw projectError;
+
+      // 2. Clonar colunas do projeto
+      const { data: columns, error: columnsError } = await supabase
+        .from('project_columns')
+        .select('*')
+        .eq('project_id', project.id);
+
+      if (columnsError) throw columnsError;
+
+      if (columns && columns.length > 0) {
+        const columnsToInsert = columns.map(col => ({
+          ...col,
+          id: undefined, // Remove o ID para criar novo
+          project_id: newProject.id, // Novo projeto ID
+          created_at: undefined,
+          updated_at: undefined
+        }));
+
+        const { error: insertColumnsError } = await supabase
+          .from('project_columns')
+          .insert(columnsToInsert);
+
+        if (insertColumnsError) throw insertColumnsError;
+      }
+
+      // 3. Clonar itens do projeto (sem o chat)
+      const { data: items, error: itemsError } = await supabase
+        .from('project_items')
+        .select('*')
+        .eq('project_id', project.id);
+
+      if (itemsError) throw itemsError;
+
+      if (items && items.length > 0) {
+        const itemsToInsert = items.map(item => ({
+          ...item,
+          id: undefined, // Remove o ID para criar novo
+          project_id: newProject.id, // Novo projeto ID
+          created_at: undefined,
+          updated_at: undefined
+        }));
+
+        const { error: insertItemsError } = await supabase
+          .from('project_items')
+          .insert(itemsToInsert);
+
+        if (insertItemsError) throw insertItemsError;
+      }
+
+      // 4. Clonar permissões de roles
+      const { data: permissions, error: permissionsError } = await supabase
+        .from('role_column_permissions')
+        .select('*')
+        .eq('project_id', project.id);
+
+      if (permissionsError) throw permissionsError;
+
+      if (permissions && permissions.length > 0) {
+        const permissionsToInsert = permissions.map(perm => ({
+          ...perm,
+          id: undefined, // Remove o ID para criar novo
+          project_id: newProject.id, // Novo projeto ID
+          created_at: undefined,
+          updated_at: undefined
+        }));
+
+        const { error: insertPermissionsError } = await supabase
+          .from('role_column_permissions')
+          .insert(permissionsToInsert);
+
+        if (insertPermissionsError) throw insertPermissionsError;
+      }
+
+      toast({
+        title: "Projeto clonado com sucesso!",
+        description: `O projeto "${newName}" foi criado como cópia de "${project.name}"`,
+      });
+
+      fetchProjects();
+    } catch (err) {
+      console.error('Error cloning project:', err);
+      toast({
+        title: "Erro ao clonar projeto",
+        description: "Não foi possível clonar o projeto",
+        variant: "destructive",
+      });
     }
   };
 
@@ -436,6 +541,15 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
                       >
                         <Edit className="h-4 w-4 mr-1" />
                         Renomear
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleCloneProject(project)}
+                        className="text-blue-600 hover:text-blue-700"
+                      >
+                        <Copy className="h-4 w-4 mr-1" />
+                        Clonar
                       </Button>
                       <Button
                         variant="outline"

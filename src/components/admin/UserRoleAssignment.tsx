@@ -282,6 +282,7 @@ const UserRoleAssignment = ({ project }: UserRoleAssignmentProps) => {
   };
 
   const getRoleColor = (roleName: string) => {
+    if (roleName === 'collaborator') return '#3b82f6';
     const role = roles.find(r => r.name === roleName);
     return role?.color || '#6366f1';
   };
@@ -356,6 +357,16 @@ const UserRoleAssignment = ({ project }: UserRoleAssignmentProps) => {
                       <SelectValue placeholder="Selecione uma role" />
                     </SelectTrigger>
                     <SelectContent>
+                      {/* Sempre incluir collaborator como opção */}
+                      <SelectItem value="collaborator">
+                        <div className="flex items-center gap-2">
+                          <div 
+                            className="w-3 h-3 rounded-full" 
+                            style={{ backgroundColor: '#3b82f6' }}
+                          />
+                          collaborator
+                        </div>
+                      </SelectItem>
                       {roles.map((role) => (
                         <SelectItem key={role.id} value={role.name}>
                           <div className="flex items-center gap-2">
@@ -448,6 +459,16 @@ const UserRoleAssignment = ({ project }: UserRoleAssignmentProps) => {
                                     <SelectValue />
                                   </SelectTrigger>
                                   <SelectContent>
+                                    {/* Sempre incluir collaborator como opção */}
+                                    <SelectItem value="collaborator">
+                                      <div className="flex items-center gap-2">
+                                        <div 
+                                          className="w-3 h-3 rounded-full" 
+                                          style={{ backgroundColor: '#3b82f6' }}
+                                        />
+                                        collaborator
+                                      </div>
+                                    </SelectItem>
                                     {roles.map((role) => (
                                       <SelectItem key={role.id} value={role.name}>
                                         <div className="flex items-center gap-2">

@@ -710,6 +710,7 @@ const [roles, setRoles] = useState<CustomRole[]>([]);
                                 className={`px-2 py-1 text-xs ${
                                   currentPermission === level ? '' : getPermissionColor(level)
                                 }`}
+                                disabled={column.is_calculated && level === 'edit'} // Não permitir editar colunas calculadas
                               >
                                 {getPermissionIcon(level)}
                                 <span className="ml-1 capitalize">{level === 'none' ? 'Ocultar' : level === 'view' ? 'Ver' : 'Editar'}</span>
