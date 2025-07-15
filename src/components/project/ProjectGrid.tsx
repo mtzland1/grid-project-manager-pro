@@ -287,6 +287,7 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
 
   const handleUpdateRow = async (rowId: string, updates: Partial<ProjectRow>) => {
     console.log('Updating row:', rowId, 'with updates:', updates);
+    console.log('Current permissions:', permissions);
     
     // Colunas estáticas do sistema
     const staticColumns = ['id', 'project_id', 'descricao', 'qtd', 'unidade', 'mat_uni_pr', 'desconto', 
@@ -295,28 +296,58 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
                           'cc_encargos_valor', 'cc_total', 'vlr_total_venda', 'vlr_total_estimado', 
                           'created_at', 'updated_at', 'distribuidor'];
 
-    // Verificar permissões de forma mais permissiva para colaboradores
-    const hasPermissionToUpdate = permissions.role === 'admin' || 
-      permissions.projectRole === 'admin' || 
-      (permissions.projectRole === 'collaborator' && permissions.canEdit) ||
-      Object.keys(updates).every(columnKey => {
-        // Para colunas estáticas, verificar permissão específica
+    // Verificação de permissões mais simples e clara
+    const isAdmin = permissions.role === 'admin' || permissions.projectRole === 'admin';
+    const isCollaborator = permissions.role === 'collaborator' || permissions.projectRole === 'collaborator';
+    
+    // Se é admin, pode tudo
+    if (isAdmin) {
+      console.log('User is admin, allowing all updates');
+    }
+    // Se é colaborador, verificar permissões específicas das colunas
+    else if (isCollaborator) {
+      const hasPermissionForAllColumns = Object.keys(updates).every(columnKey => {
         if (staticColumns.includes(columnKey)) {
-          return canEditColumn(columnKey) || permissions.role === 'admin' || permissions.projectRole === 'admin';
+          const canEdit = canEditColumn(columnKey);
+          console.log(`Column ${columnKey} permission:`, canEdit);
+          return canEdit;
+        } else {
+          // Para colunas dinâmicas, colaboradores podem editar por padrão
+          const canEdit = canEditColumn(columnKey);
+          console.log(`Dynamic column ${columnKey} permission:`, canEdit);
+          return canEdit;
         }
-        // Para colunas dinâmicas, colaboradores podem editar por padrão
-        return permissions.projectRole === 'collaborator' || canEditColumn(columnKey) || permissions.role === 'admin' || permissions.projectRole === 'admin';
       });
 
-    if (!hasPermissionToUpdate) {
-      console.log('Permission denied for updates:', Object.keys(updates));
-      console.log('User permissions:', permissions);
-      toast({
-        title: "Acesso negado",
-        description: "Você não tem permissão para editar essas colunas",
-        variant: "destructive",
+      if (!hasPermissionForAllColumns) {
+        console.log('Permission denied for some columns');
+        toast({
+          title: "Acesso negado",
+          description: "Você não tem permissão para editar essas colunas",
+          variant: "destructive",
+        });
+        return;
+      }
+      console.log('Collaborator has permission for all columns being updated');
+    }
+    // Outros roles precisam de verificação específica
+    else {
+      console.log('User is not admin or collaborator, checking specific permissions');
+      const hasPermissionForAllColumns = Object.keys(updates).every(columnKey => {
+        const canEdit = canEditColumn(columnKey);
+        console.log(`Column ${columnKey} permission for role ${permissions.projectRole}:`, canEdit);
+        return canEdit;
       });
-      return;
+
+      if (!hasPermissionForAllColumns) {
+        console.log('Permission denied for updates:', Object.keys(updates));
+        toast({
+          title: "Acesso negado",
+          description: "Você não tem permissão para editar essas colunas",
+          variant: "destructive",
+        });
+        return;
+      }
     }
 
     try {
@@ -634,9 +665,7 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
                                                 'cc_icms_pr', 'cc_icms_revenda', 'cc_lucro_porcentagem', 'cc_lucro_valor', 
                                                 'cc_encargos_valor', 'cc_total', 'vlr_total_venda', 'vlr_total_estimado', 'distribuidor'];
                           
-                          const canEditThisColumn = staticColumns.includes(column.column_key) 
-                            ? (canEditColumn(column.column_key) || permissions.role === 'admin' || permissions.projectRole === 'admin')
-                            : (permissions.projectRole === 'collaborator' || canEditColumn(column.column_key) || permissions.role === 'admin' || permissions.projectRole === 'admin');
+                          const canEditThisColumn = canEditColumn(column.column_key);
 
                           return (
                             <div 
