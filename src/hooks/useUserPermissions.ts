@@ -81,6 +81,20 @@ export const useUserPermissions = (projectId?: string) => {
           rolePermissions?.forEach(perm => {
             columnPermissions[perm.column_key] = perm.permission_level;
           });
+          
+          // Para colaboradores, dar permissão de edição em colunas que não têm permissão específica definida
+          if (projectRole === 'collaborator' || projectRole === 'orcamentista') {
+            const { data: allColumns } = await supabase
+              .from('project_columns')
+              .select('column_key')
+              .eq('project_id', projectId);
+
+            allColumns?.forEach(col => {
+              if (!columnPermissions[col.column_key]) {
+                columnPermissions[col.column_key] = 'edit';
+              }
+            });
+          }
         }
       }
 

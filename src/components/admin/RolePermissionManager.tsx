@@ -324,6 +324,38 @@ const RolePermissionManager = ({ project }: RolePermissionManagerProps) => {
 
       if (error) throw error;
 
+      // Criar permissões 'view' automáticas para todas as roles
+      const { data: allRoles } = await supabase
+        .from('custom_roles')
+        .select('name');
+
+      const defaultRoles = ['admin', 'collaborator', 'orcamentista', 'apontador'];
+      const allRoleNames = [
+        ...defaultRoles,
+        ...(allRoles?.map(r => r.name) || [])
+      ];
+
+      // Remover duplicatas
+      const uniqueRoles = [...new Set(allRoleNames)];
+
+      // Criar permissões para cada role
+      const permissionsToCreate = uniqueRoles.map(roleName => ({
+        project_id: project.id,
+        role_name: roleName,
+        column_key: data.column_key,
+        permission_level: 'view' as const
+      }));
+
+      if (permissionsToCreate.length > 0) {
+        const { error: permissionsError } = await supabase
+          .from('role_column_permissions')
+          .insert(permissionsToCreate);
+
+        if (permissionsError) {
+          console.error('Error creating default permissions:', permissionsError);
+        }
+      }
+
       setColumns([...columns, data]);
       setNewColumnKey('');
       setNewColumnLabel('');
@@ -332,7 +364,7 @@ const RolePermissionManager = ({ project }: RolePermissionManagerProps) => {
 
       toast({
         title: "Coluna criada",
-        description: `Coluna "${data.column_label}" foi criada com sucesso`,
+        description: `Coluna "${data.column_label}" foi criada com permissões automáticas para todas as roles`,
       });
     } catch (error) {
       console.error('Error creating column:', error);
@@ -656,16 +688,14 @@ const RolePermissionManager = ({ project }: RolePermissionManagerProps) => {
                           </Badge>
                         )}
                         
-                        {!column.is_system_column && (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => deleteColumn(column.id)}
-                            className="text-red-600 hover:text-red-700"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        )}
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => deleteColumn(column.id)}
+                          className="text-red-600 hover:text-red-700"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
                       </div>
                     </div>
                   );

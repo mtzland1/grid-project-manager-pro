@@ -267,10 +267,15 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
   };
 
   const handleUpdateRow = async (rowId: string, updates: Partial<ProjectRow>) => {
-    if (!permissions.canEdit) {
+    // Verificar permissões para as colunas específicas sendo atualizadas
+    const hasPermissionToUpdate = Object.keys(updates).every(columnKey => {
+      return canEditColumn(columnKey) || permissions.role === 'admin';
+    });
+
+    if (!hasPermissionToUpdate) {
       toast({
         title: "Acesso negado",
-        description: "Você não tem permissão para editar dados",
+        description: "Você não tem permissão para editar essas colunas",
         variant: "destructive",
       });
       return;
