@@ -4,10 +4,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowLeft, Plus, Save, Trash2, Edit, Search, Download, MessageCircle } from 'lucide-react';
+import { ArrowLeft, Plus, Save, Trash2, Edit, Search, Download, MessageCircle, Filter, MoreVertical } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useUserPermissions } from '@/hooks/useUserPermissions';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Badge } from '@/components/ui/badge';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import ProjectChat from './ProjectChat';
 
 interface Project {
@@ -460,49 +463,73 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
   }), { cc_mat_total: 0, cc_mo_total: 0, vlr_total_estimado: 0, vlr_total_venda: 0 });
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-white">
-      {/* Header */}
-      <header className="bg-white shadow-sm border-b border-gray-200 sticky top-0 z-10">
-        <div className="max-w-full px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-background">
+      {/* Header moderno com gradiente sutil */}
+      <header className="bg-card/95 backdrop-blur-sm shadow-sm border-b sticky top-0 z-50">
+        <div className="container mx-auto px-6">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center space-x-4">
-              <Button variant="ghost" onClick={onBack}>
+              <Button variant="ghost" onClick={onBack} className="hover:bg-accent">
                 <ArrowLeft className="h-4 w-4 mr-2" />
                 Voltar
               </Button>
               <div>
-                <h1 className="text-xl font-bold text-gray-900">{project.name}</h1>
-                <p className="text-sm text-gray-500">
-                  {rows.length} {rows.length === 1 ? 'item' : 'itens'}
-                </p>
+                <h1 className="text-2xl font-bold text-foreground">{project.name}</h1>
+                <div className="flex items-center space-x-2">
+                  <Badge variant="secondary" className="text-xs">
+                    {rows.length} {rows.length === 1 ? 'item' : 'itens'}
+                  </Badge>
+                  {searchTerm && (
+                    <Badge variant="outline" className="text-xs">
+                      {filteredRows.length} filtrados
+                    </Badge>
+                  )}
+                </div>
               </div>
             </div>
             
-            <div className="flex items-center space-x-2">
+            <div className="flex items-center space-x-3">
               <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
                   placeholder="Buscar itens..."
-                  className="pl-10 w-64"
+                  className="pl-10 w-72 bg-background/50"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                 />
               </div>
               
+              <Button variant="outline" size="sm">
+                <Filter className="h-4 w-4 mr-2" />
+                Filtros
+              </Button>
+              
               {permissions.canCreate && (
-                <Button onClick={handleAddRow}>
+                <Button onClick={handleAddRow} className="shadow-md">
                   <Plus className="h-4 w-4 mr-2" />
                   Nova Linha
                 </Button>
               )}
               
-              <Dialog open={showChat} onOpenChange={setShowChat}>
-                <DialogTrigger asChild>
-                  <Button variant="outline">
-                    <MessageCircle className="h-4 w-4 mr-2" />
-                    Chat
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm">
+                    <MoreVertical className="h-4 w-4" />
                   </Button>
-                </DialogTrigger>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => setShowChat(true)}>
+                    <MessageCircle className="h-4 w-4 mr-2" />
+                    Chat do Projeto
+                  </DropdownMenuItem>
+                  <DropdownMenuItem>
+                    <Download className="h-4 w-4 mr-2" />
+                    Exportar Excel
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              
+              <Dialog open={showChat} onOpenChange={setShowChat}>
                 <DialogContent className="max-w-4xl max-h-[80vh]">
                   <DialogHeader>
                     <DialogTitle>Chat do Projeto</DialogTitle>
@@ -510,167 +537,255 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
                   <ProjectChat project={project} />
                 </DialogContent>
               </Dialog>
-              
-              <Button variant="outline">
-                <Download className="h-4 w-4 mr-2" />
-                Exportar
-              </Button>
             </div>
           </div>
         </div>
       </header>
 
-      {/* Totals Summary */}
-      <div className="bg-gray-50 border-b border-gray-200 px-4 sm:px-6 lg:px-8 py-4">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="text-center">
-            <p className="text-sm text-gray-600">Total Material</p>
-            <p className="text-lg font-semibold text-blue-600">
-              {formatValue(totals.cc_mat_total, 'currency')}
-            </p>
-          </div>
-          <div className="text-center">
-            <p className="text-sm text-gray-600">Total Mão de Obra</p>
-            <p className="text-lg font-semibold text-green-600">
-              {formatValue(totals.cc_mo_total, 'currency')}
-            </p>
-          </div>
-          <div className="text-center">
-            <p className="text-sm text-gray-600">Total Estimado</p>
-            <p className="text-lg font-semibold text-purple-600">
-              {formatValue(totals.vlr_total_estimado, 'currency')}
-            </p>
-          </div>
-          <div className="text-center">
-            <p className="text-sm text-gray-600">Total Venda</p>
-            <p className="text-lg font-semibold text-orange-600">
-              {formatValue(totals.vlr_total_venda, 'currency')}
-            </p>
+      {/* Cards de totais mais modernos */}
+      <div className="bg-gradient-to-r from-primary/5 to-primary/10 border-b">
+        <div className="container mx-auto px-6 py-6">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <Card className="border-l-4 border-l-blue-500 shadow-sm hover:shadow-md transition-shadow">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Total Material</p>
+                    <p className="text-2xl font-bold text-blue-600">
+                      {formatValue(totals.cc_mat_total, 'currency')}
+                    </p>
+                  </div>
+                  <div className="h-8 w-8 bg-blue-100 rounded-full flex items-center justify-center">
+                    <div className="h-4 w-4 bg-blue-500 rounded-sm" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            
+            <Card className="border-l-4 border-l-green-500 shadow-sm hover:shadow-md transition-shadow">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Total Mão de Obra</p>
+                    <p className="text-2xl font-bold text-green-600">
+                      {formatValue(totals.cc_mo_total, 'currency')}
+                    </p>
+                  </div>
+                  <div className="h-8 w-8 bg-green-100 rounded-full flex items-center justify-center">
+                    <div className="h-4 w-4 bg-green-500 rounded-sm" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            
+            <Card className="border-l-4 border-l-purple-500 shadow-sm hover:shadow-md transition-shadow">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Total Estimado</p>
+                    <p className="text-2xl font-bold text-purple-600">
+                      {formatValue(totals.vlr_total_estimado, 'currency')}
+                    </p>
+                  </div>
+                  <div className="h-8 w-8 bg-purple-100 rounded-full flex items-center justify-center">
+                    <div className="h-4 w-4 bg-purple-500 rounded-sm" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            
+            <Card className="border-l-4 border-l-orange-500 shadow-sm hover:shadow-md transition-shadow">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Total Venda</p>
+                    <p className="text-2xl font-bold text-orange-600">
+                      {formatValue(totals.vlr_total_venda, 'currency')}
+                    </p>
+                  </div>
+                  <div className="h-8 w-8 bg-orange-100 rounded-full flex items-center justify-center">
+                    <div className="h-4 w-4 bg-orange-500 rounded-sm" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
           </div>
         </div>
       </div>
 
-      {/* Grid */}
-      <div className="p-4 sm:p-6 lg:p-8">
-        <Card>
-          <CardContent className="p-0">
-            <ScrollArea className="h-[calc(100vh-300px)]">
-              <div className="overflow-x-auto">
-                <div className="min-w-max">
-                  {/* Header */}
-                  <div className="flex bg-gray-50 border-b border-gray-200 sticky top-0">
-                    {/* Ações sempre visíveis */}
-                    <div className="w-20 p-3 border-r border-gray-200 font-medium text-sm text-gray-700">
-                      Ações
-                    </div>
-                    {visibleColumns.map((column) => (
-                      <div 
-                        key={column.column_key}
-                        className="p-3 border-r border-gray-200 font-medium text-sm text-gray-700"
-                        style={{ width: column.column_width, minWidth: column.column_width }}
-                      >
-                        {column.column_label}
-                        {column.is_calculated && (
-                          <span className="ml-1 text-xs text-blue-600">*</span>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Rows */}
-                  {filteredRows.length === 0 ? (
-                    <div className="p-8 text-center text-gray-500">
-                      {searchTerm ? 'Nenhum item encontrado' : 'Nenhum item adicionado ainda'}
-                    </div>
-                  ) : (
-                    filteredRows.map((row, index) => (
-                      <div key={row.id} className={`flex hover:bg-gray-50 ${index % 2 === 0 ? 'bg-white' : 'bg-gray-25'}`}>
-                        {/* Ações sempre visíveis */}
-                        <div className="w-20 p-2 border-r border-gray-200 flex space-x-1">
-                          {editingRow === row.id ? (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => setEditingRow(null)}
-                              className="cursor-pointer"
-                            >
-                              <Save className="h-3 w-3" />
-                            </Button>
-                          ) : (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => setEditingRow(row.id)}
-                              className="cursor-pointer hover:bg-gray-100"
-                            >
-                              <Edit className="h-3 w-3" />
-                            </Button>
-                          )}
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => permissions.canDelete ? handleDeleteRow(row.id) : null}
-                            className={`text-red-600 ${!permissions.canDelete ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:text-red-700 hover:bg-red-50'}`}
-                          >
-                            <Trash2 className="h-3 w-3" />
-                          </Button>
-                        </div>
-                        {visibleColumns.map((column) => {
-                          const canEditThisColumn = canEditColumn(column.column_key);
-
-                          return (
-                            <div 
-                              key={column.column_key}
-                              className="p-2 border-r border-gray-200"
-                              style={{ width: column.column_width, minWidth: column.column_width }}
-                            >
-                              {editingRow === row.id && !column.is_calculated && canEditThisColumn ? (
-                                <Input
-                                  type={column.column_type === 'number' || column.column_type === 'currency' || column.column_type === 'percentage' ? 'number' : 'text'}
-                                  value={row[column.column_key as keyof ProjectRow] || ''}
-                                  onChange={(e) => {
-                                    // Atualizar estado local imediatamente
-                                    const value = column.column_type === 'number' || column.column_type === 'currency' || column.column_type === 'percentage' 
-                                      ? Number(e.target.value) || 0
-                                      : e.target.value;
-                                    
-                                    setRows(rows.map(r => 
-                                      r.id === row.id 
-                                        ? { ...r, [column.column_key]: value }
-                                        : r
-                                    ));
-                                  }}
-                                  onBlur={(e) => {
-                                    // Salvar no banco apenas quando sair do campo
-                                    const value = column.column_type === 'number' || column.column_type === 'currency' || column.column_type === 'percentage' 
-                                      ? Number(e.target.value) || 0
-                                      : e.target.value;
-                                    console.log('Saving field:', column.column_key, 'with value:', value);
-                                    handleUpdateRow(row.id, { [column.column_key]: value });
-                                  }}
-                                  className="h-8 text-sm"
-                                  step={column.column_type === 'currency' ? '0.01' : column.column_type === 'percentage' ? '0.1' : '1'}
-                                />
-                              ) : (
-                                <span className={`text-sm ${column.is_calculated ? 'font-medium text-blue-600' : ''}`}>
-                                  {formatValue(row[column.column_key as keyof ProjectRow], column.column_type)}
-                                </span>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    ))
-                  )}
-                </div>
+      {/* Tabela moderna */}
+      <div className="container mx-auto px-6 py-6">
+        <Card className="shadow-lg border-0 bg-card/50 backdrop-blur-sm">
+          <CardHeader className="pb-4">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-lg font-semibold">Itens do Projeto</CardTitle>
+              <div className="flex items-center space-x-2">
+                <Badge variant="secondary" className="text-xs">
+                  {filteredRows.length} de {rows.length} itens
+                </Badge>
+                {editingRow && (
+                  <Badge variant="outline" className="text-xs animate-pulse">
+                    Editando...
+                  </Badge>
+                )}
               </div>
-            </ScrollArea>
+            </div>
+          </CardHeader>
+          
+          <CardContent className="p-0">
+            <div className="rounded-lg border bg-background overflow-hidden">
+              <ScrollArea className="h-[calc(100vh-400px)]">
+                <Table>
+                  <TableHeader className="bg-muted/50">
+                    <TableRow>
+                      <TableHead className="w-24 font-semibold">Ações</TableHead>
+                      {visibleColumns.map((column) => (
+                        <TableHead 
+                          key={column.column_key}
+                          className="font-semibold text-foreground"
+                          style={{ width: column.column_width, minWidth: column.column_width }}
+                        >
+                          <div className="flex items-center space-x-2">
+                            <span>{column.column_label}</span>
+                            {column.is_calculated && (
+                              <Badge variant="outline" className="text-xs px-1 py-0">
+                                Calc
+                              </Badge>
+                            )}
+                          </div>
+                        </TableHead>
+                      ))}
+                    </TableRow>
+                  </TableHeader>
+                  
+                  <TableBody>
+                    {filteredRows.length === 0 ? (
+                      <TableRow>
+                        <TableCell 
+                          colSpan={visibleColumns.length + 1} 
+                          className="h-32 text-center text-muted-foreground"
+                        >
+                          <div className="flex flex-col items-center space-y-2">
+                            <div className="h-8 w-8 bg-muted rounded-full flex items-center justify-center">
+                              <Search className="h-4 w-4" />
+                            </div>
+                            <p>
+                              {searchTerm ? 'Nenhum item encontrado para sua busca' : 'Nenhum item adicionado ainda'}
+                            </p>
+                            {!searchTerm && permissions.canCreate && (
+                              <Button size="sm" onClick={handleAddRow}>
+                                <Plus className="h-4 w-4 mr-2" />
+                                Adicionar primeiro item
+                              </Button>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      filteredRows.map((row, index) => (
+                        <TableRow 
+                          key={row.id} 
+                          className={`hover:bg-muted/30 transition-colors ${
+                            editingRow === row.id ? 'bg-primary/5 border-primary/20' : ''
+                          }`}
+                        >
+                          <TableCell className="p-3">
+                            <div className="flex items-center space-x-1">
+                              {editingRow === row.id ? (
+                                <Button
+                                  size="sm"
+                                  variant="default"
+                                  onClick={() => setEditingRow(null)}
+                                  className="h-8 w-8 p-0"
+                                >
+                                  <Save className="h-3 w-3" />
+                                </Button>
+                              ) : (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => setEditingRow(row.id)}
+                                  className="h-8 w-8 p-0 hover:bg-primary/10"
+                                >
+                                  <Edit className="h-3 w-3" />
+                                </Button>
+                              )}
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => permissions.canDelete ? handleDeleteRow(row.id) : null}
+                                disabled={!permissions.canDelete}
+                                className="h-8 w-8 p-0 text-destructive hover:bg-destructive/10 hover:text-destructive disabled:opacity-30"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                          
+                          {visibleColumns.map((column) => {
+                            const canEditThisColumn = canEditColumn(column.column_key);
+                            const value = row[column.column_key as keyof ProjectRow];
+
+                            return (
+                              <TableCell 
+                                key={column.column_key}
+                                className="p-3"
+                                style={{ width: column.column_width, minWidth: column.column_width }}
+                              >
+                                {editingRow === row.id && !column.is_calculated && canEditThisColumn ? (
+                                  <Input
+                                    type={column.column_type === 'number' || column.column_type === 'currency' || column.column_type === 'percentage' ? 'number' : 'text'}
+                                    value={value || ''}
+                                    onChange={(e) => {
+                                      const newValue = column.column_type === 'number' || column.column_type === 'currency' || column.column_type === 'percentage' 
+                                        ? Number(e.target.value) || 0
+                                        : e.target.value;
+                                      
+                                      setRows(rows.map(r => 
+                                        r.id === row.id 
+                                          ? { ...r, [column.column_key]: newValue }
+                                          : r
+                                      ));
+                                    }}
+                                    onBlur={(e) => {
+                                      const newValue = column.column_type === 'number' || column.column_type === 'currency' || column.column_type === 'percentage' 
+                                        ? Number(e.target.value) || 0
+                                        : e.target.value;
+                                      handleUpdateRow(row.id, { [column.column_key]: newValue });
+                                    }}
+                                    className="h-8 border-primary/20 focus:border-primary"
+                                    step={column.column_type === 'currency' ? '0.01' : column.column_type === 'percentage' ? '0.1' : '1'}
+                                  />
+                                ) : (
+                                  <div className={`text-sm ${
+                                    column.is_calculated 
+                                      ? 'font-semibold text-primary' 
+                                      : column.column_type === 'currency' 
+                                        ? 'font-medium text-foreground'
+                                        : 'text-muted-foreground'
+                                  }`}>
+                                    {formatValue(value, column.column_type)}
+                                  </div>
+                                )}
+                              </TableCell>
+                            );
+                          })}
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </ScrollArea>
+            </div>
+            
+            {filteredRows.length > 0 && (
+              <div className="p-4 bg-muted/20 border-t text-xs text-muted-foreground flex items-center justify-between">
+                <span>* Campos marcados como "Calc" são calculados automaticamente</span>
+                <span>{filteredRows.length} itens exibidos</span>
+              </div>
+            )}
           </CardContent>
         </Card>
-        
-        <div className="mt-4 text-xs text-gray-500">
-          * Campos calculados automaticamente
-        </div>
       </div>
     </div>
   );
