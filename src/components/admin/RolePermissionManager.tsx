@@ -84,9 +84,7 @@ const [roles, setRoles] = useState<CustomRole[]>([]);
       // Combinar roles padrão com customizadas
       const defaultRoles = [
         { id: 'admin', name: 'admin', description: 'Administrador', color: '#ef4444' },
-        { id: 'collaborator', name: 'collaborator', description: 'Colaborador', color: '#3b82f6' },
-        { id: 'orcamentista', name: 'orcamentista', description: 'Orçamentista', color: '#10b981' },
-        { id: 'apontador', name: 'apontador', description: 'Apontador', color: '#f59e0b' }
+        { id: 'collaborator', name: 'collaborator', description: 'Colaborador', color: '#3b82f6' }
       ];
 
       const allRoles = [...defaultRoles, ...(customRolesData || [])];
@@ -165,40 +163,32 @@ const [roles, setRoles] = useState<CustomRole[]>([]);
       throw error;
     }
 
-    // Criar permissões padrão para o role "apontador"
-    await createApontadorDefaultPermissions();
+    // Criar permissões padrão apenas para admin e collaborator
+    await createDefaultPermissions();
   };
 
-  const createApontadorDefaultPermissions = async () => {
-    // Definir permissões específicas para o role "apontador"
-    const apontadorPermissions = [
-      { column_key: 'descricao', permission_level: 'view' as const },
-      { column_key: 'qtd', permission_level: 'view' as const },
-      { column_key: 'unidade', permission_level: 'edit' as const }, // Única coluna editável
-      { column_key: 'mat_uni_pr', permission_level: 'view' as const },
-      { column_key: 'desconto', permission_level: 'view' as const },
-      { column_key: 'cc_mat_uni', permission_level: 'view' as const },
-      { column_key: 'cc_mat_total', permission_level: 'view' as const },
-      { column_key: 'cc_mo_uni', permission_level: 'view' as const },
-      { column_key: 'cc_mo_total', permission_level: 'view' as const },
-      { column_key: 'ipi', permission_level: 'view' as const },
-      { column_key: 'distribuidor', permission_level: 'none' as const }, // Coluna invisível
-      { column_key: 'vlr_total_estimado', permission_level: 'view' as const },
-      { column_key: 'vlr_total_venda', permission_level: 'view' as const },
+  const createDefaultPermissions = async () => {
+    // Criar permissões padrão apenas para collaborator com 'view'
+    // Admin não precisa de permissões específicas pois tem acesso total por padrão
+    const defaultColumns = [
+      'descricao', 'qtd', 'unidade', 'mat_uni_pr', 'desconto', 'cc_mat_uni',
+      'cc_mat_total', 'cc_mo_uni', 'cc_mo_total', 'ipi', 'distribuidor',
+      'vlr_total_estimado', 'vlr_total_venda'
     ];
 
-    const permissionsToInsert = apontadorPermissions.map(perm => ({
-      ...perm,
-      role_name: 'apontador',
+    const collaboratorPermissions = defaultColumns.map(columnKey => ({
+      role_name: 'collaborator',
       project_id: project.id,
+      column_key: columnKey,
+      permission_level: 'view' as const
     }));
 
     const { error } = await supabase
       .from('role_column_permissions')
-      .insert(permissionsToInsert);
+      .insert(collaboratorPermissions);
 
     if (error) {
-      console.error('Error creating apontador permissions:', error);
+      console.error('Error creating default permissions:', error);
     }
   };
 
@@ -447,10 +437,10 @@ const [roles, setRoles] = useState<CustomRole[]>([]);
   };
 
   const deleteRole = async (roleName: string) => {
-    if (roleName === 'admin') {
+    if (roleName === 'admin' || roleName === 'collaborator') {
       toast({
         title: "Ação não permitida",
-        description: "Não é possível excluir a role admin",
+        description: "Não é possível excluir as roles padrão (admin e collaborator)",
         variant: "destructive",
       });
       return;
@@ -635,7 +625,7 @@ const [roles, setRoles] = useState<CustomRole[]>([]);
                       size="sm"
                       onClick={() => deleteRole(selectedRole)}
                       className="text-red-600 hover:text-red-700"
-                      disabled={selectedRole === 'admin'}
+                      disabled={selectedRole === 'admin' || selectedRole === 'collaborator'}
                     >
                       <Trash2 className="h-4 w-4 mr-1" />
                       Excluir Role
@@ -752,33 +742,38 @@ const [roles, setRoles] = useState<CustomRole[]>([]);
         </CardContent>
       </Card>
 
-      {/* Caso de uso específico do Apontador */}
+      {/* Informações sobre o sistema de permissões */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Users className="h-5 w-5" />
-            Caso de Uso: Role "Apontador"
+            Sistema de Permissões
           </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="space-y-3 text-sm">
             <p className="text-gray-600">
-              O role "Apontador" foi configurado com permissões específicas para apontamentos de campo:
+              Configure as permissões por role para controlar o acesso às colunas:
             </p>
             <ul className="space-y-2">
               <li className="flex items-center gap-2">
                 <EyeOff className="h-4 w-4 text-gray-400" />
-                <span><strong>DISTRIBUIDOR:</strong> Coluna completamente invisível</span>
-              </li>
-              <li className="flex items-center gap-2">
-                <Edit className="h-4 w-4 text-green-500" />
-                <span><strong>UNIDADE:</strong> Única coluna editável</span>
+                <span><strong>Ocultar:</strong> Coluna completamente invisível para a role</span>
               </li>
               <li className="flex items-center gap-2">
                 <Eye className="h-4 w-4 text-blue-500" />
-                <span><strong>Demais colunas:</strong> Apenas visualização</span>
+                <span><strong>Ver:</strong> Permissão apenas de visualização</span>
+              </li>
+              <li className="flex items-center gap-2">
+                <Edit className="h-4 w-4 text-green-500" />
+                <span><strong>Editar:</strong> Permissão de visualização e edição</span>
               </li>
             </ul>
+            <p className="text-gray-600 mt-4">
+              <strong>Admin:</strong> Sempre terá acesso total a todas as colunas e pode criar/deletar colunas.
+              <br />
+              <strong>Collaborator:</strong> Por padrão tem permissão de visualização em todas as colunas.
+            </p>
           </div>
         </CardContent>
       </Card>
