@@ -58,14 +58,20 @@ const ProjectChat = ({ project }: ProjectChatProps) => {
     scrollToBottom();
   }, [messages]);
 
+  // Configurar realtime após obter o usuário
+  useEffect(() => {
+    if (currentUserId && !loading) {
+      console.log('🔌 User loaded, setting up realtime...');
+      setupRealtime();
+    }
+  }, [currentUserId, loading]);
+
   const initializeChat = async () => {
     try {
       console.log('🔑 Getting current user...');
       await getCurrentUser();
       console.log('📥 Loading initial messages...');
       await loadMessages();
-      console.log('⚡ Setting up realtime...');
-      setupRealtime();
     } catch (error) {
       console.error('❌ Error initializing chat:', error);
       toast({
@@ -142,18 +148,15 @@ const ProjectChat = ({ project }: ProjectChatProps) => {
     cleanupRealtime();
 
     if (!currentUserId) {
-      console.log('⏳ Waiting for user ID...');
+      console.log('⏳ No user ID available for realtime setup');
+      setIsConnected(false);
       return;
     }
 
-    console.log('⚡ Setting up realtime subscription...');
+    console.log('⚡ Setting up realtime subscription for user:', currentUserId);
     
     const channel = supabase
-      .channel(`chat_${project.id}_${Date.now()}`, {
-        config: {
-          presence: { key: currentUserId }
-        }
-      })
+      .channel(`chat_project_${project.id}_${currentUserId}`)
       .on(
         'postgres_changes',
         {
@@ -209,32 +212,27 @@ const ProjectChat = ({ project }: ProjectChatProps) => {
           });
         }
       )
-      .on('presence', { event: 'sync' }, () => {
-        console.log('👥 Presence sync');
-        setIsConnected(true);
-      })
-      .on('presence', { event: 'join' }, ({ key }) => {
-        console.log('👋 User joined:', key);
-      })
-      .on('presence', { event: 'leave' }, ({ key }) => {
-        console.log('👋 User left:', key);
-      })
       .subscribe((status) => {
-        console.log('🔌 Subscription status:', status);
-        setIsConnected(status === 'SUBSCRIBED');
+        console.log('🔌 Subscription status changed to:', status);
         
         if (status === 'SUBSCRIBED') {
           console.log('✅ Successfully subscribed to realtime!');
-          // Marcar presença
-          channel.track({
-            user_id: currentUserId,
-            user_email: currentUserEmail,
-            online_at: new Date().toISOString(),
-          });
-        } else if (status === 'CHANNEL_ERROR') {
-          console.error('❌ Channel error, retrying...');
-          // Tentar reconectar após 2 segundos
-          setTimeout(() => setupRealtime(), 2000);
+          setIsConnected(true);
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          console.error('❌ Channel error or timeout, connection failed');
+          setIsConnected(false);
+          
+          // Tentar reconectar após 3 segundos
+          setTimeout(() => {
+            console.log('🔄 Attempting to reconnect...');
+            setupRealtime();
+          }, 3000);
+        } else if (status === 'CLOSED') {
+          console.log('🔌 Channel closed');
+          setIsConnected(false);
+        } else {
+          console.log('🔌 Connection status:', status);
+          setIsConnected(false);
         }
       });
 
@@ -250,7 +248,15 @@ const ProjectChat = ({ project }: ProjectChatProps) => {
   };
 
   const sendMessage = async () => {
-    if (!newMessage.trim() || sending || !currentUserId) return;
+    if (!newMessage.trim() || sending || !currentUserId || !isConnected) {
+      console.log('❌ Cannot send message:', { 
+        hasMessage: !!newMessage.trim(), 
+        sending, 
+        hasUserId: !!currentUserId, 
+        isConnected 
+      });
+      return;
+    }
 
     const messageText = newMessage.trim();
     setSending(true);
