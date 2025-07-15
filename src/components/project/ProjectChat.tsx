@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from '@/hooks/use-toast';
-import { MessageCircle, Send, Wifi, WifiOff, Loader2 } from 'lucide-react';
+import { MessageCircle, Send, Wifi, WifiOff, Loader2, CheckCheck } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { format } from 'date-fns';
@@ -30,82 +30,49 @@ interface ProjectChatProps {
 }
 
 const ProjectChat = ({ project }: ProjectChatProps) => {
-  // Estados principais
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [connected, setConnected] = useState(false);
-  
-  // Estados do usuário
   const [currentUserId, setCurrentUserId] = useState<string>('');
   const [currentUserEmail, setCurrentUserEmail] = useState<string>('');
   
-  // Refs
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const channelRef = useRef<any>(null);
   const userMapRef = useRef<Map<string, string>>(new Map());
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
   const { toast } = useToast();
 
-  // ============= INICIALIZAÇÃO =============
-  useEffect(() => {
-    console.log('🚀 Inicializando chat para projeto:', project.id);
-    initializeChat();
-    
-    return () => {
-      console.log('🧹 Limpando chat...');
-      cleanup();
-    };
-  }, [project.id]);
+  // Auto-scroll instantâneo sempre que mensagens mudarem
+  const scrollToBottom = useCallback(() => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ 
+        behavior: 'smooth',
+        block: 'end'
+      });
+    }
+  }, []);
 
-  // Auto-scroll sempre que mensagens mudarem
   useEffect(() => {
     scrollToBottom();
-  }, [messages]);
+  }, [messages, scrollToBottom]);
 
-  // ============= FUNÇÕES PRINCIPAIS =============
-  
-  const initializeChat = async () => {
-    try {
-      setLoading(true);
-      
-      // 1. Buscar usuário atual
-      console.log('👤 Buscando usuário atual...');
-      const { data: { user }, error: userError } = await supabase.auth.getUser();
-      
-      if (userError || !user) {
-        throw new Error('Usuário não autenticado');
-      }
-      
-      setCurrentUserId(user.id);
-      setCurrentUserEmail(user.email || '');
-      console.log('✅ Usuário encontrado:', user.email);
-      
-      // 2. Carregar mensagens existentes
-      console.log('📥 Carregando mensagens...');
-      await loadMessages(user.id);
-      
-      // 3. Configurar realtime
-      console.log('⚡ Configurando realtime...');
-      setupRealtime(user.id);
-      
-    } catch (error) {
-      console.error('❌ Erro na inicialização:', error);
-      toast({
-        title: "Erro no chat",
-        description: "Não foi possível inicializar o chat",
-        variant: "destructive",
-      });
-    } finally {
-      setLoading(false);
-    }
+  const getUserDisplayName = (userId: string): string => {
+    if (userId === currentUserId) return 'Você';
+    
+    const email = userMapRef.current.get(userId);
+    if (email) return email;
+    
+    return `Usuário ${userId.slice(-4)}`;
   };
 
-  const loadMessages = async (userId: string) => {
+  const loadMessages = useCallback(async () => {
     try {
-      // Buscar mensagens
+      console.log('📥 Carregando mensagens do projeto:', project.id);
+      
       const { data: messagesData, error: messagesError } = await supabase
         .from('project_chat_messages')
         .select('*')
@@ -123,18 +90,16 @@ const ProjectChat = ({ project }: ProjectChatProps) => {
           .select('id, email')
           .in('id', userIds);
 
-        // Criar mapa de usuários
-        const userMap = new Map();
+        // Atualizar mapa de usuários
         usersData?.forEach(user => {
-          userMap.set(user.id, user.email);
+          userMapRef.current.set(user.id, user.email);
         });
-        userMapRef.current = userMap;
       }
 
       // Mapear mensagens com informações dos usuários
       const messagesWithUsers = messagesData?.map(msg => ({
         ...msg,
-        user_email: getUserDisplayName(msg.user_id, userId)
+        user_email: getUserDisplayName(msg.user_id)
       })) || [];
 
       setMessages(messagesWithUsers);
@@ -142,50 +107,21 @@ const ProjectChat = ({ project }: ProjectChatProps) => {
       
     } catch (error) {
       console.error('❌ Erro ao carregar mensagens:', error);
-      throw error;
-    }
-  };
-
-  const setupRealtime = (userId: string) => {
-    // Limpar conexão anterior
-    cleanup();
-
-    console.log('🔌 Configurando canal realtime...');
-    
-    const channel = supabase
-      .channel(`chat-${project.id}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'project_chat_messages',
-          filter: `project_id=eq.${project.id}`,
-        },
-        async (payload) => {
-          console.log('📨 Nova mensagem recebida:', payload);
-          await handleNewMessage(payload.new as ChatMessage, userId);
-        }
-      )
-      .subscribe((status) => {
-        console.log('📡 Status da conexão:', status);
-        setConnected(status === 'SUBSCRIBED');
-        
-        if (status === 'SUBSCRIBED') {
-          console.log('✅ Conectado ao realtime!');
-        } else if (status === 'CHANNEL_ERROR') {
-          console.error('❌ Erro na conexão, tentando reconectar...');
-          setTimeout(() => setupRealtime(userId), 2000);
-        }
+      toast({
+        title: "Erro ao carregar mensagens",
+        description: "Não foi possível carregar o histórico do chat",
+        variant: "destructive",
       });
+    }
+  }, [project.id, currentUserId, toast]);
 
-    channelRef.current = channel;
-  };
+  const handleNewMessage = useCallback(async (payload: any) => {
+    const newMsg = payload.new as ChatMessage;
+    console.log('📨 Nova mensagem recebida em tempo real:', newMsg);
 
-  const handleNewMessage = async (newMsg: ChatMessage, userId: string) => {
-    try {
-      // Se não temos informações do usuário, buscar
-      if (!userMapRef.current.has(newMsg.user_id) && newMsg.user_id !== userId) {
+    // Se não temos informações do usuário, buscar
+    if (!userMapRef.current.has(newMsg.user_id) && newMsg.user_id !== currentUserId) {
+      try {
         const { data: userData } = await supabase
           .from('user_emails')
           .select('email')
@@ -195,57 +131,153 @@ const ProjectChat = ({ project }: ProjectChatProps) => {
         if (userData?.email) {
           userMapRef.current.set(newMsg.user_id, userData.email);
         }
+      } catch (error) {
+        console.error('Erro ao buscar dados do usuário:', error);
       }
+    }
 
-      const messageWithUser = {
-        ...newMsg,
-        user_email: getUserDisplayName(newMsg.user_id, userId)
-      };
+    const messageWithUser = {
+      ...newMsg,
+      user_email: getUserDisplayName(newMsg.user_id)
+    };
 
-      // Adicionar à lista de mensagens
-      setMessages(prev => {
-        // Evitar duplicatas
-        if (prev.some(msg => msg.id === newMsg.id)) {
-          console.log('📝 Mensagem já existe, ignorando...');
-          return prev;
+    // Adicionar à lista de mensagens INSTANTANEAMENTE
+    setMessages(prev => {
+      // Evitar duplicatas
+      if (prev.some(msg => msg.id === newMsg.id)) {
+        console.log('📝 Mensagem já existe, ignorando...');
+        return prev;
+      }
+      
+      console.log('✅ Adicionando nova mensagem INSTANTANEAMENTE');
+      return [...prev, messageWithUser];
+    });
+  }, [currentUserId]);
+
+  const setupRealtime = useCallback(() => {
+    // Limpar conexão anterior
+    if (channelRef.current) {
+      supabase.removeChannel(channelRef.current);
+      channelRef.current = null;
+    }
+
+    // Limpar timeout de reconexão
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+
+    console.log('🔌 Configurando canal realtime para chat instantâneo...');
+    
+    const channel = supabase
+      .channel(`realtime-chat-${project.id}`, {
+        config: {
+          broadcast: { self: false },
+          presence: { key: currentUserId }
         }
+      })
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'project_chat_messages',
+          filter: `project_id=eq.${project.id}`,
+        },
+        handleNewMessage
+      )
+      .subscribe((status) => {
+        console.log('📡 Status da conexão realtime:', status);
+        setConnected(status === 'SUBSCRIBED');
         
-        console.log('✅ Adicionando nova mensagem');
-        return [...prev, messageWithUser];
+        if (status === 'SUBSCRIBED') {
+          console.log('✅ Conectado ao chat em tempo real!');
+          // Focus no input quando conectar
+          setTimeout(() => {
+            inputRef.current?.focus();
+          }, 100);
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          console.error('❌ Erro na conexão, tentando reconectar em 2s...');
+          reconnectTimeoutRef.current = setTimeout(() => {
+            setupRealtime();
+          }, 2000);
+        }
       });
 
+    channelRef.current = channel;
+  }, [project.id, currentUserId, handleNewMessage]);
+
+  const initializeChat = useCallback(async () => {
+    try {
+      setLoading(true);
+      
+      // 1. Buscar usuário atual
+      console.log('👤 Buscando usuário atual...');
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      
+      if (userError || !user) {
+        throw new Error('Usuário não autenticado');
+      }
+      
+      setCurrentUserId(user.id);
+      setCurrentUserEmail(user.email || '');
+      console.log('✅ Usuário encontrado:', user.email);
+      
+      // 2. Carregar mensagens existentes
+      await loadMessages();
+      
+      // 3. Configurar realtime INSTANTÂNEO
+      setupRealtime();
+      
     } catch (error) {
-      console.error('❌ Erro ao processar nova mensagem:', error);
+      console.error('❌ Erro na inicialização:', error);
+      toast({
+        title: "Erro no chat",
+        description: "Não foi possível inicializar o chat",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
     }
-  };
+  }, [loadMessages, setupRealtime, toast]);
+
+  useEffect(() => {
+    initializeChat();
+    
+    return () => {
+      console.log('🧹 Limpando chat...');
+      if (channelRef.current) {
+        supabase.removeChannel(channelRef.current);
+      }
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
+    };
+  }, [initializeChat]);
 
   const sendMessage = async () => {
-    if (!newMessage.trim() || sending || !connected || !currentUserId) {
-      console.log('⚠️ Não é possível enviar mensagem:', {
-        hasText: !!newMessage.trim(),
-        sending,
-        connected,
-        hasUser: !!currentUserId
-      });
+    if (!newMessage.trim() || sending || !currentUserId) {
+      console.log('⚠️ Não é possível enviar mensagem');
       return;
     }
 
     const messageText = newMessage.trim();
     setSending(true);
-    setNewMessage(''); // Limpar imediatamente para UX fluída
+    setNewMessage(''); // Limpar IMEDIATAMENTE para UX fluída
+    
+    // Scroll para baixo imediatamente
+    setTimeout(() => scrollToBottom(), 50);
     
     try {
-      console.log('📤 Enviando mensagem:', messageText);
+      console.log('📤 Enviando mensagem INSTANTANEAMENTE:', messageText);
       
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from('project_chat_messages')
         .insert({
           project_id: project.id,
           user_id: currentUserId,
           message: messageText,
-        })
-        .select()
-        .single();
+        });
 
       if (error) throw error;
 
@@ -270,38 +302,10 @@ const ProjectChat = ({ project }: ProjectChatProps) => {
     }
   };
 
-  // ============= FUNÇÕES AUXILIARES =============
-  
-  const getUserDisplayName = (userId: string, currentUserId: string): string => {
-    if (userId === currentUserId) return 'Você';
-    
-    const email = userMapRef.current.get(userId);
-    if (email) return email;
-    
-    return `Usuário ${userId.slice(-4)}`;
-  };
-
-  const scrollToBottom = useCallback(() => {
-    setTimeout(() => {
-      messagesEndRef.current?.scrollIntoView({ 
-        behavior: 'smooth',
-        block: 'end'
-      });
-    }, 50);
-  }, []);
-
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       sendMessage();
-    }
-  };
-
-  const cleanup = () => {
-    if (channelRef.current) {
-      console.log('🧹 Removendo canal realtime...');
-      supabase.removeChannel(channelRef.current);
-      channelRef.current = null;
     }
   };
 
@@ -315,14 +319,12 @@ const ProjectChat = ({ project }: ProjectChatProps) => {
     return email.substring(0, 2).toUpperCase();
   };
 
-  // ============= RENDERIZAÇÃO =============
-  
   if (loading) {
     return (
       <Card className="h-[600px] flex items-center justify-center">
         <div className="text-center space-y-4">
           <Loader2 className="h-8 w-8 mx-auto animate-spin text-primary" />
-          <p className="text-muted-foreground">Carregando chat...</p>
+          <p className="text-muted-foreground">Inicializando chat em tempo real...</p>
         </div>
       </Card>
     );
@@ -330,24 +332,34 @@ const ProjectChat = ({ project }: ProjectChatProps) => {
 
   return (
     <Card className="h-[600px] flex flex-col shadow-lg border-2 border-primary/10">
-      {/* Header */}
+      {/* Header com indicador de conexão */}
       <CardHeader className="pb-3 flex-shrink-0 bg-gradient-to-r from-primary/5 to-primary/10 border-b">
         <CardTitle className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <MessageCircle className="h-6 w-6 text-primary" />
             <div>
-              <h3 className="text-lg font-semibold">Chat em Tempo Real</h3>
-              <p className="text-sm text-muted-foreground font-normal">
-                {connected ? 'Conectado e sincronizado' : 'Conectando...'}
+              <h3 className="text-lg font-semibold">Chat WhatsApp Style</h3>
+              <p className="text-sm text-muted-foreground font-normal flex items-center gap-2">
+                {connected ? (
+                  <>
+                    <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+                    Mensagens em tempo real ativas
+                  </>
+                ) : (
+                  <>
+                    <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+                    Reconectando...
+                  </>
+                )}
               </p>
             </div>
           </div>
           
           <div className="flex items-center gap-2">
-            <Badge variant={connected ? "default" : "secondary"} className="gap-1">
+            <Badge variant={connected ? "default" : "destructive"} className="gap-1 animate-pulse">
               {connected ? (
                 <>
-                  <Wifi className="h-3 w-3" />
+                  <CheckCheck className="h-3 w-3" />
                   Online
                 </>
               ) : (
@@ -365,16 +377,16 @@ const ProjectChat = ({ project }: ProjectChatProps) => {
         </CardTitle>
       </CardHeader>
 
-      {/* Messages Area */}
+      {/* Área de mensagens com scroll automático */}
       <CardContent className="flex-1 flex flex-col p-0 min-h-0">
         <div className="flex-1 overflow-hidden">
           <ScrollArea className="h-full">
-            <div className="p-4 space-y-4">
+            <div className="p-4 space-y-3">
               {messages.length === 0 ? (
                 <div className="text-center py-16 text-muted-foreground">
                   <MessageCircle className="h-12 w-12 mx-auto mb-4 opacity-30" />
-                  <p className="text-lg font-medium">Nenhuma mensagem ainda</p>
-                  <p className="text-sm">Seja o primeiro a enviar uma mensagem!</p>
+                  <p className="text-lg font-medium">Chat em tempo real ativo!</p>
+                  <p className="text-sm">As mensagens aparecerão instantaneamente</p>
                 </div>
               ) : (
                 messages.map((message, index) => {
@@ -383,7 +395,7 @@ const ProjectChat = ({ project }: ProjectChatProps) => {
                     (new Date(message.created_at).getTime() - new Date(messages[index - 1].created_at).getTime() > 300000);
                   
                   return (
-                    <div key={message.id} className="space-y-2">
+                    <div key={message.id} className="space-y-2 animate-fade-in">
                       {showTime && (
                         <div className="text-center">
                           <Badge variant="outline" className="text-xs px-2 py-1">
@@ -392,7 +404,7 @@ const ProjectChat = ({ project }: ProjectChatProps) => {
                         </div>
                       )}
                       
-                      <div className={`flex gap-3 ${isOwn ? 'flex-row-reverse' : ''} animate-fade-in`}>
+                      <div className={`flex gap-3 ${isOwn ? 'flex-row-reverse' : ''}`}>
                         <Avatar className="h-10 w-10 flex-shrink-0 ring-2 ring-background shadow-sm">
                           <AvatarFallback className={`text-sm font-bold ${
                             isOwn 
@@ -416,9 +428,13 @@ const ProjectChat = ({ project }: ProjectChatProps) => {
                           
                           <div className={`mt-1 text-xs text-muted-foreground/70 ${
                             isOwn ? 'text-right' : 'text-left'
-                          }`}>
+                          } flex items-center gap-1 ${isOwn ? 'justify-end' : 'justify-start'}`}>
                             <span className="font-medium">{message.user_email}</span>
-                            <span className="ml-2">{formatTime(message.created_at)}</span>
+                            <span>•</span>
+                            <span>{formatTime(message.created_at)}</span>
+                            {isOwn && connected && (
+                              <CheckCheck className="h-3 w-3 text-primary ml-1" />
+                            )}
                           </div>
                         </div>
                       </div>
@@ -431,18 +447,18 @@ const ProjectChat = ({ project }: ProjectChatProps) => {
           </ScrollArea>
         </div>
 
-        {/* Input Area */}
+        {/* Área de input otimizada */}
         <div className="border-t bg-background p-4 flex-shrink-0">
           <div className="flex gap-3 items-end">
             <div className="flex-1">
               <Input
                 ref={inputRef}
-                placeholder={connected ? "Digite sua mensagem..." : "Conectando..."}
+                placeholder={connected ? "Digite sua mensagem (Enter para enviar)..." : "Aguardando conexão..."}
                 value={newMessage}
                 onChange={(e) => setNewMessage(e.target.value)}
                 onKeyPress={handleKeyPress}
                 disabled={!connected || sending}
-                className="border-2 border-primary/20 focus:border-primary/50 rounded-xl min-h-[48px] text-sm"
+                className="border-2 border-primary/20 focus:border-primary/50 rounded-xl min-h-[48px] text-sm transition-all"
                 maxLength={1000}
                 autoFocus
               />
@@ -458,7 +474,7 @@ const ProjectChat = ({ project }: ProjectChatProps) => {
               onClick={sendMessage}
               disabled={!newMessage.trim() || !connected || sending}
               size="lg"
-              className="h-[48px] w-[48px] p-0 rounded-xl shadow-md hover:shadow-lg transition-all duration-200"
+              className="h-[48px] w-[48px] p-0 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 disabled:opacity-50"
             >
               {sending ? (
                 <Loader2 className="h-5 w-5 animate-spin" />
@@ -469,9 +485,9 @@ const ProjectChat = ({ project }: ProjectChatProps) => {
           </div>
           
           {!connected && (
-            <div className="mt-2 text-xs text-destructive flex items-center gap-1">
+            <div className="mt-2 text-xs text-destructive flex items-center gap-1 animate-pulse">
               <WifiOff className="h-3 w-3" />
-              Tentando reconectar...
+              Reconectando ao chat em tempo real...
             </div>
           )}
         </div>
