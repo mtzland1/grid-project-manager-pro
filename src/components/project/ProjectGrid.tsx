@@ -511,6 +511,24 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
                 </Button>
               )}
               
+              <Dialog open={showChat} onOpenChange={setShowChat}>
+                <DialogTrigger asChild>
+                  <Button variant="default" className="shadow-md bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70">
+                    <MessageCircle className="h-4 w-4 mr-2" />
+                    Chat do Projeto
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="max-w-5xl max-h-[90vh] w-[95vw]">
+                  <DialogHeader>
+                    <DialogTitle className="flex items-center gap-2">
+                      <MessageCircle className="h-5 w-5" />
+                      Chat do Projeto - {project.name}
+                    </DialogTitle>
+                  </DialogHeader>
+                  <ProjectChat project={project} />
+                </DialogContent>
+              </Dialog>
+              
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" size="sm">
@@ -518,25 +536,12 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={() => setShowChat(true)}>
-                    <MessageCircle className="h-4 w-4 mr-2" />
-                    Chat do Projeto
-                  </DropdownMenuItem>
                   <DropdownMenuItem>
                     <Download className="h-4 w-4 mr-2" />
                     Exportar Excel
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
-              
-              <Dialog open={showChat} onOpenChange={setShowChat}>
-                <DialogContent className="max-w-4xl max-h-[80vh]">
-                  <DialogHeader>
-                    <DialogTitle>Chat do Projeto</DialogTitle>
-                  </DialogHeader>
-                  <ProjectChat project={project} />
-                </DialogContent>
-              </Dialog>
             </div>
           </div>
         </div>
