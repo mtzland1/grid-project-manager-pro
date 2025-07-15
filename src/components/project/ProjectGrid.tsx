@@ -286,12 +286,27 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
   };
 
   const handleUpdateRow = async (rowId: string, updates: Partial<ProjectRow>) => {
-    // Verificar permissões para as colunas específicas sendo atualizadas
-    const hasPermissionToUpdate = Object.keys(updates).every(columnKey => {
-      return canEditColumn(columnKey) || permissions.role === 'admin';
+    console.log('Updating row:', rowId, 'with updates:', updates);
+    
+    // Para admins, permitir todas as atualizações
+    // Para colaboradores, verificar permissões apenas para colunas do sistema
+    const staticColumns = ['id', 'project_id', 'descricao', 'qtd', 'unidade', 'mat_uni_pr', 'desconto', 
+                          'cc_mat_uni', 'cc_mat_total', 'cc_mo_uni', 'cc_mo_total', 'ipi', 'cc_pis_cofins',
+                          'cc_icms_pr', 'cc_icms_revenda', 'cc_lucro_porcentagem', 'cc_lucro_valor', 
+                          'cc_encargos_valor', 'cc_total', 'vlr_total_venda', 'vlr_total_estimado', 
+                          'created_at', 'updated_at', 'distribuidor'];
+
+    const hasPermissionToUpdate = permissions.role === 'admin' || Object.keys(updates).every(columnKey => {
+      // Para colunas estáticas, verificar permissão normalmente
+      if (staticColumns.includes(columnKey)) {
+        return canEditColumn(columnKey) || permissions.role === 'admin';
+      }
+      // Para colunas dinâmicas (novas), colaboradores podem editar por padrão
+      return permissions.projectRole === 'collaborator' || canEditColumn(columnKey) || permissions.role === 'admin';
     });
 
     if (!hasPermissionToUpdate) {
+      console.log('Permission denied for updates:', Object.keys(updates));
       toast({
         title: "Acesso negado",
         description: "Você não tem permissão para editar essas colunas",
@@ -302,12 +317,6 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
 
     try {
       // Separate static columns from dynamic columns
-      const staticColumns = ['id', 'project_id', 'descricao', 'qtd', 'unidade', 'mat_uni_pr', 'desconto', 
-                            'cc_mat_uni', 'cc_mat_total', 'cc_mo_uni', 'cc_mo_total', 'ipi', 'cc_pis_cofins',
-                            'cc_icms_pr', 'cc_icms_revenda', 'cc_lucro_porcentagem', 'cc_lucro_valor', 
-                            'cc_encargos_valor', 'cc_total', 'vlr_total_venda', 'vlr_total_estimado', 
-                            'created_at', 'updated_at', 'distribuidor'];
-      
       const staticUpdates: any = {};
       const dynamicUpdates: any = {};
       
@@ -319,6 +328,9 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
         }
       });
 
+      console.log('Static updates:', staticUpdates);
+      console.log('Dynamic updates:', dynamicUpdates);
+
       // Get current row to merge dynamic data
       const { data: currentRow } = await supabase
         .from('project_items')
@@ -329,11 +341,16 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
       const currentDynamicData = (currentRow?.dynamic_data as Record<string, any>) || {};
       const mergedDynamicData = { ...currentDynamicData, ...dynamicUpdates };
 
+      console.log('Current dynamic data:', currentDynamicData);
+      console.log('Merged dynamic data:', mergedDynamicData);
+
       // Prepare the update object
       const updateData: any = { ...staticUpdates };
       if (Object.keys(dynamicUpdates).length > 0) {
         updateData.dynamic_data = mergedDynamicData;
       }
+
+      console.log('Final update data:', updateData);
 
       const { error } = await supabase
         .from('project_items')
@@ -349,6 +366,8 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
         });
         return;
       }
+
+      console.log('Row updated successfully');
 
       setRows(rows.map(row => 
         row.id === rowId 
@@ -574,7 +593,7 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
                   ) : (
                     filteredRows.map((row, index) => (
                       <div key={row.id} className={`flex hover:bg-gray-50 ${index % 2 === 0 ? 'bg-white' : 'bg-gray-25'}`}>
-                        {/* Ações sempre visíveis - corrigido para ser clicável quando há permissão */}
+                        {/* Ações sempre visíveis */}
                         <div className="w-20 p-2 border-r border-gray-200 flex space-x-1">
                           {editingRow === row.id ? (
                             <Button
@@ -604,45 +623,58 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
                             <Trash2 className="h-3 w-3" />
                           </Button>
                         </div>
-                        {visibleColumns.map((column) => (
-                          <div 
-                            key={column.column_key}
-                            className="p-2 border-r border-gray-200"
-                            style={{ width: column.column_width, minWidth: column.column_width }}
-                          >
-                            {editingRow === row.id && !column.is_calculated && canEditColumn(column.column_key) ? (
-                              <Input
-                                type={column.column_type === 'number' || column.column_type === 'currency' || column.column_type === 'percentage' ? 'number' : 'text'}
-                                value={row[column.column_key as keyof ProjectRow] || ''}
-                                onChange={(e) => {
-                                  // Atualizar estado local imediatamente para evitar problemas de digitação
-                                  const value = column.column_type === 'number' || column.column_type === 'currency' || column.column_type === 'percentage' 
-                                    ? Number(e.target.value) || 0
-                                    : e.target.value;
-                                  
-                                  setRows(rows.map(r => 
-                                    r.id === row.id 
-                                      ? { ...r, [column.column_key]: value }
-                                      : r
-                                  ));
-                                }}
-                                onBlur={(e) => {
-                                  // Salvar no banco apenas quando sair do campo
-                                  const value = column.column_type === 'number' || column.column_type === 'currency' || column.column_type === 'percentage' 
-                                    ? Number(e.target.value) || 0
-                                    : e.target.value;
-                                  handleUpdateRow(row.id, { [column.column_key]: value });
-                                }}
-                                className="h-8 text-sm"
-                                step={column.column_type === 'currency' ? '0.01' : column.column_type === 'percentage' ? '0.1' : '1'}
-                              />
-                            ) : (
-                              <span className={`text-sm ${column.is_calculated ? 'font-medium text-blue-600' : ''}`}>
-                                {formatValue(row[column.column_key as keyof ProjectRow], column.column_type)}
-                              </span>
-                            )}
-                          </div>
-                        ))}
+                        {visibleColumns.map((column) => {
+                          // Para colunas dinâmicas, colaboradores podem editar por padrão
+                          const staticColumns = ['descricao', 'qtd', 'unidade', 'mat_uni_pr', 'desconto', 
+                                                'cc_mat_uni', 'cc_mat_total', 'cc_mo_uni', 'cc_mo_total', 'ipi', 'cc_pis_cofins',
+                                                'cc_icms_pr', 'cc_icms_revenda', 'cc_lucro_porcentagem', 'cc_lucro_valor', 
+                                                'cc_encargos_valor', 'cc_total', 'vlr_total_venda', 'vlr_total_estimado', 'distribuidor'];
+                          
+                          const canEditThisColumn = staticColumns.includes(column.column_key) 
+                            ? canEditColumn(column.column_key)
+                            : (permissions.projectRole === 'collaborator' || canEditColumn(column.column_key) || permissions.role === 'admin');
+
+                          return (
+                            <div 
+                              key={column.column_key}
+                              className="p-2 border-r border-gray-200"
+                              style={{ width: column.column_width, minWidth: column.column_width }}
+                            >
+                              {editingRow === row.id && !column.is_calculated && canEditThisColumn ? (
+                                <Input
+                                  type={column.column_type === 'number' || column.column_type === 'currency' || column.column_type === 'percentage' ? 'number' : 'text'}
+                                  value={row[column.column_key as keyof ProjectRow] || ''}
+                                  onChange={(e) => {
+                                    // Atualizar estado local imediatamente para evitar problemas de digitação
+                                    const value = column.column_type === 'number' || column.column_type === 'currency' || column.column_type === 'percentage' 
+                                      ? Number(e.target.value) || 0
+                                      : e.target.value;
+                                    
+                                    setRows(rows.map(r => 
+                                      r.id === row.id 
+                                        ? { ...r, [column.column_key]: value }
+                                        : r
+                                    ));
+                                  }}
+                                  onBlur={(e) => {
+                                    // Salvar no banco apenas quando sair do campo
+                                    const value = column.column_type === 'number' || column.column_type === 'currency' || column.column_type === 'percentage' 
+                                      ? Number(e.target.value) || 0
+                                      : e.target.value;
+                                    console.log('Saving field:', column.column_key, 'with value:', value);
+                                    handleUpdateRow(row.id, { [column.column_key]: value });
+                                  }}
+                                  className="h-8 text-sm"
+                                  step={column.column_type === 'currency' ? '0.01' : column.column_type === 'percentage' ? '0.1' : '1'}
+                                />
+                              ) : (
+                                <span className={`text-sm ${column.is_calculated ? 'font-medium text-blue-600' : ''}`}>
+                                  {formatValue(row[column.column_key as keyof ProjectRow], column.column_type)}
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                     ))
                   )}

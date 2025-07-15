@@ -73,10 +73,18 @@ export const useUserPermissions = (projectId?: string) => {
             columnPermissions[col.column_key] = 'edit';
           });
         } else {
-          // Para outros roles, começar com 'view' como padrão para todas as colunas
-          allColumns?.forEach(col => {
-            columnPermissions[col.column_key] = 'view';
-          });
+          // Para colaboradores, começar com 'edit' como padrão para todas as colunas
+          // Isso garante que possam editar colunas novas
+          if (projectRole === 'collaborator') {
+            allColumns?.forEach(col => {
+              columnPermissions[col.column_key] = 'edit';
+            });
+          } else {
+            // Para outros roles, começar com 'view' por padrão
+            allColumns?.forEach(col => {
+              columnPermissions[col.column_key] = 'view';
+            });
+          }
 
           // Agora buscar permissões específicas definidas e sobrescrever o padrão
           const { data: rolePermissions } = await supabase
@@ -122,9 +130,9 @@ export const useUserPermissions = (projectId?: string) => {
 
   const canEditColumn = (columnKey: string): boolean => {
     const permission = permissions.columnPermissions[columnKey];
-    // Se não há permissão definida, considerar como 'view' por padrão (não pode editar)
-    if (permission === undefined) {
-      return false;
+    // Para colaboradores, se não há permissão definida, permite edição por padrão
+    if (permission === undefined && permissions.projectRole === 'collaborator') {
+      return true;
     }
     return permission === 'edit';
   };
