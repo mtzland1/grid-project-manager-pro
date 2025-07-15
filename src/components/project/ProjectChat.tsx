@@ -37,60 +37,78 @@ const ProjectChat = ({ project }: ProjectChatProps) => {
   const [currentUserId, setCurrentUserId] = useState<string>('');
   const [currentUserEmail, setCurrentUserEmail] = useState<string>('');
   const [isConnected, setIsConnected] = useState(false);
-  const [typingUsers, setTypingUsers] = useState<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const channelRef = useRef<any>(null);
+  const realtimeChannelRef = useRef<any>(null);
   const { toast } = useToast();
 
+  // Inicializar tudo quando o componente montar
   useEffect(() => {
-    getCurrentUser();
-    loadMessages();
+    console.log('🚀 ProjectChat mounted for project:', project.id);
+    initializeChat();
     
     return () => {
-      if (channelRef.current) {
-        supabase.removeChannel(channelRef.current);
-      }
+      console.log('🔥 ProjectChat unmounting, cleaning up...');
+      cleanupRealtime();
     };
   }, [project.id]);
 
+  // Auto-scroll quando mensagens mudarem
   useEffect(() => {
-    if (currentUserId) {
-      setupRealtimeSubscription();
-    }
-  }, [currentUserId, project.id]);
-
-  useEffect(() => {
-    if (messages.length > 0) {
-      scrollToBottom();
-    }
+    scrollToBottom();
   }, [messages]);
 
+  const initializeChat = async () => {
+    try {
+      console.log('🔑 Getting current user...');
+      await getCurrentUser();
+      console.log('📥 Loading initial messages...');
+      await loadMessages();
+      console.log('⚡ Setting up realtime...');
+      setupRealtime();
+    } catch (error) {
+      console.error('❌ Error initializing chat:', error);
+      toast({
+        title: "Erro ao inicializar chat",
+        description: "Tente recarregar a página",
+        variant: "destructive",
+      });
+    }
+  };
+
   const getCurrentUser = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
+    const { data: { user }, error } = await supabase.auth.getUser();
+    if (error) {
+      console.error('❌ Error getting user:', error);
+      return;
+    }
+    
     if (user) {
+      console.log('✅ Current user:', user.id, user.email);
       setCurrentUserId(user.id);
       setCurrentUserEmail(user.email || '');
     }
   };
 
-  const scrollToBottom = () => {
-    setTimeout(() => {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-    }, 50);
-  };
-
   const loadMessages = async () => {
     try {
+      setLoading(true);
+      console.log('📥 Loading messages for project:', project.id);
+      
       const { data, error } = await supabase
         .from('project_chat_messages')
         .select('*')
         .eq('project_id', project.id)
         .order('created_at', { ascending: true });
 
-      if (error) throw error;
+      if (error) {
+        console.error('❌ Error loading messages:', error);
+        throw error;
+      }
 
-      // Buscar emails dos usuários separadamente
+      console.log('✅ Loaded', data?.length || 0, 'messages');
+
+      // Buscar informações dos usuários
       const userIds = [...new Set((data || []).map(msg => msg.user_id))];
       const { data: users } = await supabase
         .from('user_emails')
@@ -106,8 +124,9 @@ const ProjectChat = ({ project }: ProjectChatProps) => {
       }));
 
       setMessages(messagesWithUsers);
+      console.log('✅ Messages state updated');
     } catch (error) {
-      console.error('Error loading messages:', error);
+      console.error('❌ Error loading messages:', error);
       toast({
         title: "Erro ao carregar mensagens",
         description: "Não foi possível carregar as mensagens do chat",
@@ -118,20 +137,22 @@ const ProjectChat = ({ project }: ProjectChatProps) => {
     }
   };
 
-  const setupRealtimeSubscription = () => {
-    if (channelRef.current) {
-      supabase.removeChannel(channelRef.current);
+  const setupRealtime = () => {
+    // Limpar canal anterior se existir
+    cleanupRealtime();
+
+    if (!currentUserId) {
+      console.log('⏳ Waiting for user ID...');
+      return;
     }
 
-    console.log('Setting up realtime subscription for project:', project.id);
+    console.log('⚡ Setting up realtime subscription...');
     
     const channel = supabase
-      .channel(`project-chat-${project.id}`, {
+      .channel(`chat_${project.id}_${Date.now()}`, {
         config: {
-          presence: {
-            key: currentUserId,
-          },
-        },
+          presence: { key: currentUserId }
+        }
       })
       .on(
         'postgres_changes',
@@ -142,10 +163,10 @@ const ProjectChat = ({ project }: ProjectChatProps) => {
           filter: `project_id=eq.${project.id}`,
         },
         async (payload) => {
-          console.log('Received new message:', payload);
+          console.log('📨 NEW MESSAGE RECEIVED:', payload);
           const newMsg = payload.new as ChatMessage;
           
-          // Buscar informações do usuário para mensagem em tempo real
+          // Buscar informação do usuário para a nova mensagem
           let userDisplay = `Usuário ${newMsg.user_id.slice(-4)}`;
           
           if (newMsg.user_id === currentUserId) {
@@ -162,115 +183,108 @@ const ProjectChat = ({ project }: ProjectChatProps) => {
                 userDisplay = userInfo.email;
               }
             } catch (err) {
-              console.log('Could not fetch user email for real-time message:', err);
+              console.log('⚠️ Could not fetch user email:', err);
             }
           }
           
-          setMessages(prev => {
-            // Verificar se a mensagem já existe para evitar duplicatas
-            const exists = prev.some(msg => msg.id === newMsg.id);
+          const messageWithUser = {
+            ...newMsg,
+            user_email: userDisplay
+          };
+
+          console.log('📝 Adding message to state:', messageWithUser);
+          
+          // Adicionar mensagem ao estado de forma segura
+          setMessages(prevMessages => {
+            // Verificar se já existe para evitar duplicatas
+            const exists = prevMessages.some(msg => msg.id === newMsg.id);
             if (exists) {
-              console.log('Message already exists, skipping duplicate');
-              return prev;
+              console.log('🔄 Message already exists, skipping...');
+              return prevMessages;
             }
             
-            const newMessages = [...prev, {
-              ...newMsg,
-              user_email: userDisplay
-            }];
-            
-            console.log('Adding new message to state, total messages:', newMessages.length);
+            const newMessages = [...prevMessages, messageWithUser];
+            console.log('✅ Messages updated. Total:', newMessages.length);
             return newMessages;
           });
-
-          // Auto-scroll para nova mensagem
-          setTimeout(() => scrollToBottom(), 100);
-
-          // Mostrar notificação para mensagens de outros usuários
-          if (newMsg.user_id !== currentUserId) {
-            toast({
-              title: "Nova mensagem",
-              description: `${userDisplay}: ${newMsg.message.substring(0, 50)}${newMsg.message.length > 50 ? '...' : ''}`,
-            });
-          }
         }
       )
       .on('presence', { event: 'sync' }, () => {
-        console.log('Presence sync');
+        console.log('👥 Presence sync');
         setIsConnected(true);
       })
-      .on('presence', { event: 'join' }, ({ key, newPresences }) => {
-        console.log('User joined:', key);
+      .on('presence', { event: 'join' }, ({ key }) => {
+        console.log('👋 User joined:', key);
       })
-      .on('presence', { event: 'leave' }, ({ key, leftPresences }) => {
-        console.log('User left:', key);
+      .on('presence', { event: 'leave' }, ({ key }) => {
+        console.log('👋 User left:', key);
       })
       .subscribe((status) => {
-        console.log('Subscription status:', status);
+        console.log('🔌 Subscription status:', status);
         setIsConnected(status === 'SUBSCRIBED');
         
         if (status === 'SUBSCRIBED') {
-          // Enviar presença para indicar que estamos online
+          console.log('✅ Successfully subscribed to realtime!');
+          // Marcar presença
           channel.track({
             user_id: currentUserId,
             user_email: currentUserEmail,
             online_at: new Date().toISOString(),
           });
+        } else if (status === 'CHANNEL_ERROR') {
+          console.error('❌ Channel error, retrying...');
+          // Tentar reconectar após 2 segundos
+          setTimeout(() => setupRealtime(), 2000);
         }
       });
 
-    channelRef.current = channel;
+    realtimeChannelRef.current = channel;
+  };
+
+  const cleanupRealtime = () => {
+    if (realtimeChannelRef.current) {
+      console.log('🧹 Cleaning up realtime channel...');
+      supabase.removeChannel(realtimeChannelRef.current);
+      realtimeChannelRef.current = null;
+    }
   };
 
   const sendMessage = async () => {
-    if (!newMessage.trim() || sending) return;
+    if (!newMessage.trim() || sending || !currentUserId) return;
 
+    const messageText = newMessage.trim();
     setSending(true);
-    const messageToSend = newMessage.trim();
+    setNewMessage(''); // Limpar imediatamente para UX rápida
     
     try {
-      console.log('Sending message:', messageToSend);
+      console.log('📤 Sending message:', messageText);
       
       const { data, error } = await supabase
         .from('project_chat_messages')
         .insert({
           project_id: project.id,
           user_id: currentUserId,
-          message: messageToSend,
+          message: messageText,
         })
         .select()
         .single();
 
       if (error) {
-        console.error('Error sending message:', error);
+        console.error('❌ Error sending message:', error);
         throw error;
       }
 
-      console.log('Message sent successfully:', data);
-
-      // Adicionar mensagem imediatamente ao estado local para resposta rápida
-      if (data) {
-        setMessages(prev => {
-          const exists = prev.some(msg => msg.id === data.id);
-          if (exists) return prev;
-          
-          return [...prev, {
-            ...data,
-            user_email: 'Você'
-          }];
-        });
-      }
-
-      setNewMessage('');
+      console.log('✅ Message sent successfully:', data);
       
-      // Focus no input para facilitar digitação contínua
+      // Focus no input para continuar digitando
       setTimeout(() => {
         inputRef.current?.focus();
-        scrollToBottom();
-      }, 50);
+      }, 100);
       
     } catch (error) {
-      console.error('Error sending message:', error);
+      console.error('❌ Error sending message:', error);
+      // Restaurar mensagem em caso de erro
+      setNewMessage(messageText);
       toast({
         title: "Erro ao enviar mensagem",
         description: "Não foi possível enviar a mensagem. Tente novamente.",
@@ -288,7 +302,15 @@ const ProjectChat = ({ project }: ProjectChatProps) => {
     }
   };
 
-  // Format message time with better date handling
+  const scrollToBottom = () => {
+    setTimeout(() => {
+      messagesEndRef.current?.scrollIntoView({ 
+        behavior: 'smooth', 
+        block: 'end' 
+      });
+    }, 100);
+  };
+
   const formatMessageTime = (timestamp: string) => {
     const date = new Date(timestamp);
     
@@ -301,48 +323,15 @@ const ProjectChat = ({ project }: ProjectChatProps) => {
     }
   };
 
-  // Get initials for avatar
   const getInitials = (userEmail: string) => {
     if (userEmail === 'Você') return 'EU';
     if (userEmail.startsWith('Usuário')) return userEmail.slice(-4);
     return userEmail.substring(0, 2).toUpperCase();
   };
 
-  const formatDate = (timestamp: string) => {
-    const date = new Date(timestamp);
-    const today = new Date();
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
-
-    if (date.toDateString() === today.toDateString()) {
-      return 'Hoje';
-    } else if (date.toDateString() === yesterday.toDateString()) {
-      return 'Ontem';
-    } else {
-      return date.toLocaleDateString('pt-BR');
-    }
-  };
-
-  const groupMessagesByDate = (messages: ChatMessage[]) => {
-    const groups: { [key: string]: ChatMessage[] } = {};
-    
-    messages.forEach(message => {
-      const date = new Date(message.created_at).toDateString();
-      if (!groups[date]) {
-        groups[date] = [];
-      }
-      groups[date].push(message);
-    });
-
-    return Object.entries(groups).map(([date, msgs]) => ({
-      date,
-      messages: msgs
-    }));
-  };
-
   if (loading) {
     return (
-      <Card className="h-[500px] flex items-center justify-center">
+      <Card className="h-[600px] flex items-center justify-center">
         <div className="text-center text-muted-foreground">
           <MessageCircle className="h-8 w-8 mx-auto mb-2 animate-pulse" />
           <p>Carregando chat...</p>
@@ -357,7 +346,7 @@ const ProjectChat = ({ project }: ProjectChatProps) => {
         <CardTitle className="flex items-center justify-between text-lg">
           <div className="flex items-center gap-2">
             <MessageCircle className="h-6 w-6 text-primary" />
-            <span>Chat do Projeto</span>
+            <span>Chat em Tempo Real</span>
             <Badge variant={isConnected ? "default" : "secondary"} className="ml-2">
               {isConnected ? (
                 <>
@@ -377,7 +366,7 @@ const ProjectChat = ({ project }: ProjectChatProps) => {
           </Badge>
         </CardTitle>
         <p className="text-sm text-muted-foreground">
-          Converse em tempo real com sua equipe
+          Mensagens instantâneas • Como WhatsApp
         </p>
       </CardHeader>
       
@@ -399,7 +388,7 @@ const ProjectChat = ({ project }: ProjectChatProps) => {
                 messages.map((message, index) => {
                   const isOwn = message.user_id === currentUserId;
                   const showTimestamp = index === 0 || 
-                    (new Date(message.created_at).getTime() - new Date(messages[index - 1].created_at).getTime() > 300000); // 5 minutes
+                    (new Date(message.created_at).getTime() - new Date(messages[index - 1].created_at).getTime() > 300000);
                   
                   return (
                     <div key={message.id} className="space-y-2">
@@ -411,7 +400,7 @@ const ProjectChat = ({ project }: ProjectChatProps) => {
                         </div>
                       )}
                       
-                      <div className={`flex gap-3 ${isOwn ? 'flex-row-reverse' : ''} group`}>
+                      <div className={`flex gap-3 ${isOwn ? 'flex-row-reverse' : ''} group animate-fade-in`}>
                         <Avatar className="h-10 w-10 mt-1 flex-shrink-0 ring-2 ring-background">
                           <AvatarFallback className={`text-sm font-semibold ${
                             isOwn 
@@ -465,6 +454,7 @@ const ProjectChat = ({ project }: ProjectChatProps) => {
                 disabled={sending || !isConnected}
                 className="min-h-[44px] resize-none border-2 border-primary/20 focus:border-primary/50 rounded-xl"
                 maxLength={1000}
+                autoFocus
               />
               {newMessage.length > 800 && (
                 <p className="text-xs text-muted-foreground mt-1">
@@ -485,6 +475,13 @@ const ProjectChat = ({ project }: ProjectChatProps) => {
               )}
             </Button>
           </div>
+          
+          {!isConnected && (
+            <div className="mt-2 text-xs text-destructive flex items-center gap-1">
+              <WifiOff className="h-3 w-3" />
+              Reconectando...
+            </div>
+          )}
         </div>
       </CardContent>
     </Card>
