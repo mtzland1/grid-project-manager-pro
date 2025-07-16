@@ -109,7 +109,14 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
 
       setNewProjectName('');
       setShowCreateDialog(false);
-      fetchProjects();
+      
+      // Aguardar um breve momento para garantir que o trigger foi executado
+      setTimeout(() => {
+        fetchProjects();
+        // Abrir automaticamente o projeto recém-criado
+        setSelectedProject(data);
+      }, 500);
+
     } catch (err) {
       console.error('Error creating project:', err);
       toast({
