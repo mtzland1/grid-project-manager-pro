@@ -211,7 +211,9 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
 
       if (projectError) throw projectError;
 
-      // 2. Clonar colunas do projeto
+      console.log('Novo projeto criado:', newProject);
+
+      // 2. Clonar estrutura das colunas (configurações, tipos e ordem)
       const { data: columns, error: columnsError } = await supabase
         .from('project_columns')
         .select('*')
@@ -221,11 +223,14 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
 
       if (columns && columns.length > 0) {
         const columnsToInsert = columns.map(col => ({
-          ...col,
-          id: undefined, // Remove o ID para criar novo
-          project_id: newProject.id, // Novo projeto ID
-          created_at: undefined,
-          updated_at: undefined
+          project_id: newProject.id,
+          column_key: col.column_key,
+          column_label: col.column_label,
+          column_type: col.column_type,
+          column_width: col.column_width,
+          column_order: col.column_order,
+          is_system_column: col.is_system_column,
+          is_calculated: col.is_calculated
         }));
 
         const { error: insertColumnsError } = await supabase
@@ -233,33 +238,10 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
           .insert(columnsToInsert);
 
         if (insertColumnsError) throw insertColumnsError;
+        console.log('Colunas clonadas:', columnsToInsert.length);
       }
 
-      // 3. Clonar itens do projeto (sem o chat)
-      const { data: items, error: itemsError } = await supabase
-        .from('project_items')
-        .select('*')
-        .eq('project_id', project.id);
-
-      if (itemsError) throw itemsError;
-
-      if (items && items.length > 0) {
-        const itemsToInsert = items.map(item => ({
-          ...item,
-          id: undefined, // Remove o ID para criar novo
-          project_id: newProject.id, // Novo projeto ID
-          created_at: undefined,
-          updated_at: undefined
-        }));
-
-        const { error: insertItemsError } = await supabase
-          .from('project_items')
-          .insert(itemsToInsert);
-
-        if (insertItemsError) throw insertItemsError;
-      }
-
-      // 4. Clonar permissões de roles
+      // 3. Clonar permissões de roles (estrutura de acesso)
       const { data: permissions, error: permissionsError } = await supabase
         .from('role_column_permissions')
         .select('*')
@@ -269,11 +251,10 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
 
       if (permissions && permissions.length > 0) {
         const permissionsToInsert = permissions.map(perm => ({
-          ...perm,
-          id: undefined, // Remove o ID para criar novo
-          project_id: newProject.id, // Novo projeto ID
-          created_at: undefined,
-          updated_at: undefined
+          project_id: newProject.id,
+          role_name: perm.role_name,
+          column_key: perm.column_key,
+          permission_level: perm.permission_level
         }));
 
         const { error: insertPermissionsError } = await supabase
@@ -281,11 +262,39 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
           .insert(permissionsToInsert);
 
         if (insertPermissionsError) throw insertPermissionsError;
+        console.log('Permissões clonadas:', permissionsToInsert.length);
       }
+
+      // 4. Clonar usuários e suas roles no projeto
+      const { data: userRoles, error: userRolesError } = await supabase
+        .from('user_project_roles')
+        .select('*')
+        .eq('project_id', project.id);
+
+      if (userRolesError) throw userRolesError;
+
+      if (userRoles && userRoles.length > 0) {
+        const userRolesToInsert = userRoles.map(userRole => ({
+          user_id: userRole.user_id,
+          project_id: newProject.id,
+          role_name: userRole.role_name,
+          assigned_by: user.id // O admin que está clonando
+        }));
+
+        const { error: insertUserRolesError } = await supabase
+          .from('user_project_roles')
+          .insert(userRolesToInsert);
+
+        if (insertUserRolesError) throw insertUserRolesError;
+        console.log('Usuários e roles clonados:', userRolesToInsert.length);
+      }
+
+      // IMPORTANTE: NÃO clonar dados (project_items) nem chat (project_chat_messages)
+      // O novo projeto deve começar limpo, apenas com a estrutura
 
       toast({
         title: "Projeto clonado com sucesso!",
-        description: `O projeto "${newName}" foi criado como cópia de "${project.name}"`,
+        description: `O projeto "${newName}" foi criado como uma cópia estrutural de "${project.name}". Os dados e chat não foram copiados, o projeto está limpo e pronto para uso.`,
       });
 
       fetchProjects();
@@ -293,7 +302,7 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
       console.error('Error cloning project:', err);
       toast({
         title: "Erro ao clonar projeto",
-        description: "Não foi possível clonar o projeto",
+        description: "Não foi possível clonar o projeto. Verifique o console para mais detalhes.",
         variant: "destructive",
       });
     }
