@@ -47,7 +47,7 @@ interface RolePermissionManagerProps {
 }
 
 const RolePermissionManager = ({ project }: RolePermissionManagerProps) => {
-const [roles, setRoles] = useState<CustomRole[]>([]);
+  const [roles, setRoles] = useState<CustomRole[]>([]);
   const [customRoles, setCustomRoles] = useState<CustomRole[]>([]);
   const [columns, setColumns] = useState<ProjectColumn[]>([]);
   const [permissions, setPermissions] = useState<RolePermission[]>([]);
@@ -147,6 +147,7 @@ const [roles, setRoles] = useState<CustomRole[]>([]);
       { column_key: 'distribuidor', column_label: 'DISTRIBUIDOR', column_type: 'text', column_width: '120px', column_order: 11, is_system_column: true },
       { column_key: 'vlr_total_estimado', column_label: 'VLR. TOTAL ESTIMADO', column_type: 'currency', column_width: '150px', column_order: 12, is_system_column: true, is_calculated: true },
       { column_key: 'vlr_total_venda', column_label: 'VLR. TOTAL VENDA', column_type: 'currency', column_width: '150px', column_order: 13, is_system_column: true, is_calculated: true },
+      { column_key: 'suma', column_label: 'SUMA', column_type: 'currency', column_width: '120px', column_order: 14, is_system_column: true },
     ];
 
     const columnsToInsert = defaultColumns.map(col => ({
@@ -163,24 +164,25 @@ const [roles, setRoles] = useState<CustomRole[]>([]);
       throw error;
     }
 
-    // Criar permissões padrão apenas para admin e collaborator
+    // Criar permissões padrão para todas as roles
     await createDefaultPermissions();
   };
 
   const createDefaultPermissions = async () => {
-    // Criar permissões padrão apenas para collaborator com 'view'
-    // Admin não precisa de permissões específicas pois tem acesso total por padrão
-    const defaultColumns = [
-      'descricao', 'qtd', 'unidade', 'mat_uni_pr', 'desconto', 'cc_mat_uni',
-      'cc_mat_total', 'cc_mo_uni', 'cc_mo_total', 'ipi', 'distribuidor',
-      'vlr_total_estimado', 'vlr_total_venda'
-    ];
+    // Obter todas as colunas criadas
+    const { data: allColumns } = await supabase
+      .from('project_columns')
+      .select('column_key')
+      .eq('project_id', project.id);
 
-    const collaboratorPermissions = defaultColumns.map(columnKey => ({
+    if (!allColumns) return;
+
+    // Criar permissões padrão para collaborator (todas as colunas com 'edit')
+    const collaboratorPermissions = allColumns.map(col => ({
       role_name: 'collaborator',
       project_id: project.id,
-      column_key: columnKey,
-      permission_level: 'view' as const
+      column_key: col.column_key,
+      permission_level: 'edit' as const
     }));
 
     const { error } = await supabase
@@ -200,49 +202,67 @@ const [roles, setRoles] = useState<CustomRole[]>([]);
     // Admin tem acesso total por padrão
     if (roleName === 'admin') return 'edit';
     
-    return permission?.permission_level || 'view';
+    // Se não há permissão específica, padrão é 'edit' para colaboradores
+    return permission?.permission_level || 'edit';
   };
 
   const updatePermission = async (roleName: string, columnKey: string, level: 'none' | 'view' | 'edit') => {
     try {
-      if (level === 'none') {
-        // Se a permissão for 'none', deletar o registro existente
-        const existingPermission = permissions.find(p => 
-          p.role_name === roleName && p.column_key === columnKey
-        );
+      console.log(`Updating permission: ${roleName} - ${columnKey} - ${level}`);
 
-        if (existingPermission) {
-          const { error } = await supabase
-            .from('role_column_permissions')
-            .delete()
-            .eq('id', existingPermission.id);
+      // Para role admin, não permitir alterações
+      if (roleName === 'admin') {
+        toast({
+          title: "Ação não permitida",
+          description: "Não é possível alterar permissões do administrador",
+          variant: "destructive",
+        });
+        return;
+      }
 
-          if (error) throw error;
+      const existingPermission = permissions.find(p => 
+        p.role_name === roleName && p.column_key === columnKey
+      );
 
-          setPermissions(permissions.filter(p => p.id !== existingPermission.id));
-        }
-      } else {
-        // Para 'view' e 'edit', fazer upsert
+      if (existingPermission) {
+        // Atualizar permissão existente
         const { error } = await supabase
           .from('role_column_permissions')
-          .upsert({
+          .update({ permission_level: level })
+          .eq('id', existingPermission.id);
+
+        if (error) throw error;
+
+        // Atualizar estado local
+        setPermissions(permissions.map(p => 
+          p.id === existingPermission.id 
+            ? { ...p, permission_level: level }
+            : p
+        ));
+      } else {
+        // Criar nova permissão
+        const { data, error } = await supabase
+          .from('role_column_permissions')
+          .insert({
             role_name: roleName,
             project_id: project.id,
             column_key: columnKey,
             permission_level: level
-          }, {
-            onConflict: 'role_name,project_id,column_key'
-          });
+          })
+          .select()
+          .single();
 
         if (error) throw error;
 
-        // Recarregar permissões para atualizar o estado
-        await loadData();
+        // Adicionar ao estado local
+        setPermissions([...permissions, data]);
       }
 
+      const actionText = level === 'none' ? 'ocultada' : level === 'view' ? 'definida para visualização' : 'definida para edição';
+      
       toast({
         title: "Permissão atualizada",
-        description: `Permissão para ${roleName} na coluna ${columnKey} foi alterada para ${level}`,
+        description: `Coluna "${columnKey}" foi ${actionText} para a role "${roleName}"`,
       });
     } catch (error) {
       console.error('Error updating permission:', error);
@@ -277,12 +297,12 @@ const [roles, setRoles] = useState<CustomRole[]>([]);
 
       if (error) throw error;
 
-      // Criar permissões 'view' para todas as colunas existentes
+      // Criar permissões 'edit' para todas as colunas existentes
       const permissionsToCreate = columns.map(column => ({
         project_id: project.id,
         role_name: data.name,
         column_key: column.column_key,
-        permission_level: 'view' as const
+        permission_level: 'edit' as const
       }));
 
       if (permissionsToCreate.length > 0) {
@@ -347,39 +367,23 @@ const [roles, setRoles] = useState<CustomRole[]>([]);
 
       if (error) throw error;
 
-      // Criar permissões 'view' automáticas para todas as roles
+      // Criar permissões 'edit' automáticas para todas as roles (exceto admin)
       const { data: allRoles } = await supabase
         .from('custom_roles')
         .select('name');
 
-      // Apenas admin e collaborator devem receber permissões padrão para novas colunas
-      const defaultRoles = ['admin', 'collaborator'];
+      const defaultRoles = ['collaborator'];
       const allRoleNames = [
         ...defaultRoles,
         ...(allRoles?.map(r => r.name) || [])
       ];
 
-      // Remover duplicatas
-      const uniqueRoles = [...new Set(allRoleNames)];
-
-      // Verificar permissões existentes para evitar duplicatas
-      const { data: existingPermissions } = await supabase
-        .from('role_column_permissions')
-        .select('role_name')
-        .eq('project_id', project.id)
-        .eq('column_key', data.column_key);
-
-      const existingRoles = new Set(existingPermissions?.map(p => p.role_name) || []);
-
-      // Criar permissões apenas para roles que não têm permissão definida
-      const permissionsToCreate = uniqueRoles
-        .filter(roleName => !existingRoles.has(roleName))
-        .map(roleName => ({
-          project_id: project.id,
-          role_name: roleName,
-          column_key: data.column_key,
-          permission_level: 'view' as const
-        }));
+      const permissionsToCreate = allRoleNames.map(roleName => ({
+        project_id: project.id,
+        role_name: roleName,
+        column_key: data.column_key,
+        permission_level: 'edit' as const
+      }));
 
       if (permissionsToCreate.length > 0) {
         const { error: permissionsError } = await supabase
@@ -396,10 +400,13 @@ const [roles, setRoles] = useState<CustomRole[]>([]);
       setNewColumnLabel('');
       setNewColumnType('text');
       setShowCreateColumn(false);
+      
+      // Recarregar dados
+      await loadData();
 
       toast({
         title: "Coluna criada",
-        description: `Coluna "${data.column_label}" foi criada com permissões automáticas para todas as roles`,
+        description: `Coluna "${data.column_label}" foi criada com permissões automáticas`,
       });
     } catch (error) {
       console.error('Error creating column:', error);
@@ -514,11 +521,11 @@ const [roles, setRoles] = useState<CustomRole[]>([]);
   const getPermissionColor = (level: 'none' | 'view' | 'edit') => {
     switch (level) {
       case 'none':
-        return 'bg-gray-100 text-gray-600';
+        return 'bg-gray-100 text-gray-600 border-gray-200';
       case 'view':
-        return 'bg-blue-100 text-blue-700';
+        return 'bg-blue-100 text-blue-700 border-blue-200';
       case 'edit':
-        return 'bg-green-100 text-green-700';
+        return 'bg-green-100 text-green-700 border-green-200';
     }
   };
 
@@ -612,79 +619,79 @@ const [roles, setRoles] = useState<CustomRole[]>([]);
                   Permissões para: {selectedRole}
                 </h3>
                 
-                <Dialog open={showCreateColumn} onOpenChange={setShowCreateColumn}>
-                  <DialogTrigger asChild>
-                  <div className="flex gap-2">
-                    <Button variant="outline" size="sm">
-                      <Plus className="h-4 w-4 mr-1" />
-                      Nova Coluna
-                    </Button>
-                    
-                    <Button 
-                      variant="outline" 
-                      size="sm"
-                      onClick={() => deleteRole(selectedRole)}
-                      className="text-red-600 hover:text-red-700"
-                      disabled={selectedRole === 'admin' || selectedRole === 'collaborator'}
-                    >
-                      <Trash2 className="h-4 w-4 mr-1" />
-                      Excluir Role
-                    </Button>
-                  </div>
-                  </DialogTrigger>
-                  <DialogContent>
-                    <DialogHeader>
-                      <DialogTitle>Criar Nova Coluna</DialogTitle>
-                    </DialogHeader>
-                    <div className="space-y-4">
-                      <div>
-                        <Label htmlFor="columnKey">Chave da Coluna</Label>
-                        <Input
-                          id="columnKey"
-                          value={newColumnKey}
-                          onChange={(e) => setNewColumnKey(e.target.value)}
-                          placeholder="Ex: observacoes, codigo_interno"
-                        />
-                      </div>
-                      <div>
-                        <Label htmlFor="columnLabel">Rótulo</Label>
-                        <Input
-                          id="columnLabel"
-                          value={newColumnLabel}
-                          onChange={(e) => setNewColumnLabel(e.target.value)}
-                          placeholder="Ex: Observações, Código Interno"
-                        />
-                      </div>
-                      <div>
-                        <Label htmlFor="columnType">Tipo</Label>
-                        <Select value={newColumnType} onValueChange={setNewColumnType}>
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="text">Texto</SelectItem>
-                            <SelectItem value="number">Número</SelectItem>
-                            <SelectItem value="currency">Moeda</SelectItem>
-                            <SelectItem value="percentage">Porcentagem</SelectItem>
-                            <SelectItem value="date">Data</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <Button onClick={createColumn} className="w-full">
-                        Criar Coluna
+                <div className="flex gap-2">
+                  <Dialog open={showCreateColumn} onOpenChange={setShowCreateColumn}>
+                    <DialogTrigger asChild>
+                      <Button variant="outline" size="sm">
+                        <Plus className="h-4 w-4 mr-1" />
+                        Nova Coluna
                       </Button>
-                    </div>
-                  </DialogContent>
-                </Dialog>
+                    </DialogTrigger>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>Criar Nova Coluna</DialogTitle>
+                      </DialogHeader>
+                      <div className="space-y-4">
+                        <div>
+                          <Label htmlFor="columnKey">Chave da Coluna</Label>
+                          <Input
+                            id="columnKey"
+                            value={newColumnKey}
+                            onChange={(e) => setNewColumnKey(e.target.value)}
+                            placeholder="Ex: observacoes, codigo_interno"
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="columnLabel">Rótulo</Label>
+                          <Input
+                            id="columnLabel"
+                            value={newColumnLabel}
+                            onChange={(e) => setNewColumnLabel(e.target.value)}
+                            placeholder="Ex: Observações, Código Interno"
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="columnType">Tipo</Label>
+                          <Select value={newColumnType} onValueChange={setNewColumnType}>
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="text">Texto</SelectItem>
+                              <SelectItem value="number">Número</SelectItem>
+                              <SelectItem value="currency">Moeda</SelectItem>
+                              <SelectItem value="percentage">Porcentagem</SelectItem>
+                              <SelectItem value="date">Data</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <Button onClick={createColumn} className="w-full">
+                          Criar Coluna
+                        </Button>
+                      </div>
+                    </DialogContent>
+                  </Dialog>
+                  
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={() => deleteRole(selectedRole)}
+                    className="text-red-600 hover:text-red-700"
+                    disabled={selectedRole === 'admin' || selectedRole === 'collaborator'}
+                  >
+                    <Trash2 className="h-4 w-4 mr-1" />
+                    Excluir Role
+                  </Button>
+                </div>
               </div>
 
-              <div className="grid gap-2">
+              <div className="grid gap-3">
                 {columns.map((column) => {
                   const currentPermission = getPermissionLevel(selectedRole, column.column_key);
                   const isAdminRole = selectedRole === 'admin';
                   
                   return (
-                    <div key={column.id} className="flex items-center justify-between p-3 border rounded-lg">
+                    <div key={column.id} className="flex items-center justify-between p-4 border rounded-lg bg-card">
                       <div className="flex items-center gap-3">
                         <div className="flex items-center gap-2">
                           {getPermissionIcon(currentPermission)}
@@ -699,7 +706,7 @@ const [roles, setRoles] = useState<CustomRole[]>([]);
                       </div>
                       
                       <div className="flex items-center gap-2">
-                        {!isAdminRole && (
+                        {!isAdminRole ? (
                           <div className="flex gap-1">
                             {(['none', 'view', 'edit'] as const).map((level) => (
                               <Button
@@ -707,32 +714,36 @@ const [roles, setRoles] = useState<CustomRole[]>([]);
                                 size="sm"
                                 variant={currentPermission === level ? "default" : "outline"}
                                 onClick={() => updatePermission(selectedRole, column.column_key, level)}
-                                className={`px-2 py-1 text-xs ${
-                                  currentPermission === level ? '' : getPermissionColor(level)
+                                className={`px-3 py-1 text-xs border ${
+                                  currentPermission === level 
+                                    ? '' 
+                                    : getPermissionColor(level)
                                 }`}
-                                disabled={column.is_calculated && level === 'edit'} // Não permitir editar colunas calculadas
+                                disabled={column.is_calculated && level === 'edit'}
                               >
                                 {getPermissionIcon(level)}
-                                <span className="ml-1 capitalize">{level === 'none' ? 'Ocultar' : level === 'view' ? 'Ver' : 'Editar'}</span>
+                                <span className="ml-1 capitalize">
+                                  {level === 'none' ? 'Ocultar' : level === 'view' ? 'Ver' : 'Editar'}
+                                </span>
                               </Button>
                             ))}
                           </div>
-                        )}
-                        
-                        {isAdminRole && (
+                        ) : (
                           <Badge className="bg-red-100 text-red-700">
                             Acesso Total
                           </Badge>
                         )}
                         
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => deleteColumn(column.id)}
-                          className="text-red-600 hover:text-red-700"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                        {!column.is_system_column && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => deleteColumn(column.id)}
+                            className="text-red-600 hover:text-red-700"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
                       </div>
                     </div>
                   );
@@ -771,9 +782,9 @@ const [roles, setRoles] = useState<CustomRole[]>([]);
               </li>
             </ul>
             <p className="text-gray-600 mt-4">
-              <strong>Admin:</strong> Sempre terá acesso total a todas as colunas e pode criar/deletar colunas.
+              <strong>Admin:</strong> Sempre terá acesso total a todas as colunas.
               <br />
-              <strong>Collaborator:</strong> Por padrão tem permissão de visualização em todas as colunas.
+              <strong>Outras roles:</strong> Por padrão têm permissão de edição, mas podem ser restritas.
             </p>
           </div>
         </CardContent>
