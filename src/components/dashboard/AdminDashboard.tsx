@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { User } from '@supabase/supabase-js';
@@ -213,16 +214,32 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
 
       console.log('Novo projeto criado:', newProject);
 
-      // 2. Clonar estrutura das colunas (configurações, tipos e ordem)
-      const { data: columns, error: columnsError } = await supabase
+      // 2. Aguardar um breve momento para garantir que o trigger foi executado
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      // 3. Buscar colunas do projeto original
+      const { data: originalColumns, error: originalColumnsError } = await supabase
         .from('project_columns')
         .select('*')
         .eq('project_id', project.id);
 
-      if (columnsError) throw columnsError;
+      if (originalColumnsError) throw originalColumnsError;
 
-      if (columns && columns.length > 0) {
-        const columnsToInsert = columns.map(col => ({
+      // 4. Buscar colunas que já existem no novo projeto (criadas pelo trigger)
+      const { data: existingColumns, error: existingColumnsError } = await supabase
+        .from('project_columns')
+        .select('column_key')
+        .eq('project_id', newProject.id);
+
+      if (existingColumnsError) throw existingColumnsError;
+
+      // 5. Criar um Set com as chaves das colunas que já existem
+      const existingColumnKeys = new Set(existingColumns?.map(col => col.column_key) || []);
+
+      // 6. Filtrar apenas as colunas que não existem no novo projeto
+      const columnsToInsert = originalColumns
+        ?.filter(col => !existingColumnKeys.has(col.column_key))
+        .map(col => ({
           project_id: newProject.id,
           column_key: col.column_key,
           column_label: col.column_label,
@@ -231,17 +248,43 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
           column_order: col.column_order,
           is_system_column: col.is_system_column,
           is_calculated: col.is_calculated
-        }));
+        })) || [];
 
+      // 7. Inserir apenas as colunas que não existem
+      if (columnsToInsert.length > 0) {
         const { error: insertColumnsError } = await supabase
           .from('project_columns')
           .insert(columnsToInsert);
 
         if (insertColumnsError) throw insertColumnsError;
-        console.log('Colunas clonadas:', columnsToInsert.length);
+        console.log('Colunas adicionais clonadas:', columnsToInsert.length);
+      } else {
+        console.log('Nenhuma coluna adicional para clonar (todas já existem)');
       }
 
-      // 3. Clonar permissões de roles (estrutura de acesso)
+      // 8. Atualizar as colunas existentes com as configurações do projeto original
+      if (originalColumns && originalColumns.length > 0) {
+        for (const originalCol of originalColumns) {
+          if (existingColumnKeys.has(originalCol.column_key)) {
+            const { error: updateError } = await supabase
+              .from('project_columns')
+              .update({
+                column_label: originalCol.column_label,
+                column_type: originalCol.column_type,
+                column_width: originalCol.column_width,
+                column_order: originalCol.column_order,
+                is_calculated: originalCol.is_calculated
+              })
+              .eq('project_id', newProject.id)
+              .eq('column_key', originalCol.column_key);
+
+            if (updateError) throw updateError;
+          }
+        }
+        console.log('Configurações das colunas existentes atualizadas');
+      }
+
+      // 9. Clonar permissões de roles (estrutura de acesso)
       const { data: permissions, error: permissionsError } = await supabase
         .from('role_column_permissions')
         .select('*')
@@ -265,7 +308,7 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
         console.log('Permissões clonadas:', permissionsToInsert.length);
       }
 
-      // 4. Clonar usuários e suas roles no projeto
+      // 10. Clonar usuários e suas roles no projeto
       const { data: userRoles, error: userRolesError } = await supabase
         .from('user_project_roles')
         .select('*')
