@@ -21,9 +21,11 @@ export const useUnreadMessages = (user: User | null) => {
 
     try {
       // Buscar todas as mensagens de projetos que o usuário tem acesso
+      // EXCLUINDO as mensagens enviadas pelo próprio usuário
       const { data: messages, error: messagesError } = await supabase
         .from('project_chat_messages')
-        .select('id, project_id, created_at');
+        .select('id, project_id, created_at, user_id')
+        .neq('user_id', user.id); // Excluir mensagens do próprio usuário
 
       if (messagesError) {
         console.error('Error fetching messages:', messagesError);
@@ -49,7 +51,7 @@ export const useUnreadMessages = (user: User | null) => {
       // Criar um Set com IDs das mensagens lidas
       const readMessageIds = new Set(readStatus?.map(rs => rs.message_id) || []);
 
-      // Contar mensagens não lidas por projeto
+      // Contar mensagens não lidas por projeto (excluindo as do próprio usuário)
       const counts: Record<string, number> = {};
       messages.forEach(message => {
         if (!readMessageIds.has(message.id)) {
@@ -70,10 +72,12 @@ export const useUnreadMessages = (user: User | null) => {
 
     try {
       // Buscar mensagens do projeto que ainda não foram lidas
+      // EXCLUINDO as mensagens enviadas pelo próprio usuário
       const { data: messages, error: messagesError } = await supabase
         .from('project_chat_messages')
         .select('id')
-        .eq('project_id', projectId);
+        .eq('project_id', projectId)
+        .neq('user_id', user.id); // Excluir mensagens do próprio usuário
 
       if (messagesError || !messages) {
         console.error('Error fetching project messages:', messagesError);
