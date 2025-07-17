@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { User } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
@@ -9,6 +8,8 @@ import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/components/ui/use-toast';
 import { Grid3X3, LogOut, Search, Calendar, Loader2, Users, Eye } from 'lucide-react';
 import ProjectGrid from '@/components/project/ProjectGrid';
+import { useUnreadMessages } from '@/hooks/useUnreadMessages';
+import { NotificationBadge } from '@/components/ui/notification-badge';
 
 interface Project {
   id: string;
@@ -28,6 +29,7 @@ const CollaboratorDashboard = ({ user }: CollaboratorDashboardProps) => {
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const { toast } = useToast();
+  const { unreadCounts, markProjectMessagesAsRead } = useUnreadMessages(user);
 
   const fetchProjects = async () => {
     try {
@@ -81,6 +83,14 @@ const CollaboratorDashboard = ({ user }: CollaboratorDashboardProps) => {
     } catch (err) {
       console.error('Error logging out:', err);
     }
+  };
+
+  const handleProjectOpen = (project: Project) => {
+    // Marcar mensagens como lidas ao abrir o projeto
+    if (unreadCounts[project.id] > 0) {
+      markProjectMessagesAsRead(project.id);
+    }
+    setSelectedProject(project);
   };
 
   const filteredProjects = projects.filter(project =>
@@ -210,12 +220,18 @@ const CollaboratorDashboard = ({ user }: CollaboratorDashboardProps) => {
                   <Card key={project.id} className="hover:shadow-md transition-shadow cursor-pointer">
                     <CardContent className="p-6">
                       <div className="mb-3">
-                        <h3 
-                          className="font-semibold text-lg text-gray-900 hover:text-emerald-600 cursor-pointer"
-                          onClick={() => setSelectedProject(project)}
-                        >
-                          {project.name}
-                        </h3>
+                        <div className="flex items-center">
+                          <h3 
+                            className="font-semibold text-lg text-gray-900 hover:text-emerald-600 cursor-pointer"
+                            onClick={() => handleProjectOpen(project)}
+                          >
+                            {project.name}
+                          </h3>
+                          <NotificationBadge 
+                            count={unreadCounts[project.id] || 0}
+                            onClick={() => handleProjectOpen(project)}
+                          />
+                        </div>
                       </div>
                       <div className="space-y-2 text-sm text-gray-600">
                         <p>
@@ -228,10 +244,16 @@ const CollaboratorDashboard = ({ user }: CollaboratorDashboardProps) => {
                       <Button 
                         className="w-full mt-4" 
                         variant="outline"
-                        onClick={() => setSelectedProject(project)}
+                        onClick={() => handleProjectOpen(project)}
                       >
                         <Eye className="h-4 w-4 mr-2" />
                         Visualizar Projeto
+                        {unreadCounts[project.id] > 0 && (
+                          <NotificationBadge 
+                            count={unreadCounts[project.id]}
+                            className="ml-auto"
+                          />
+                        )}
                       </Button>
                     </CardContent>
                   </Card>

@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { User } from '@supabase/supabase-js';
@@ -12,6 +11,8 @@ import { Badge } from '@/components/ui/badge';
 import ProjectGrid from '@/components/project/ProjectGrid';
 import RolePermissionManager from '@/components/admin/RolePermissionManager';
 import UserRoleAssignment from '@/components/admin/UserRoleAssignment';
+import { useUnreadMessages } from '@/hooks/useUnreadMessages';
+import { NotificationBadge } from '@/components/ui/notification-badge';
 
 interface Project {
   id: string;
@@ -38,6 +39,7 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
   const [showPermissions, setShowPermissions] = useState(false);
   const [showUserManagement, setShowUserManagement] = useState(false);
   const { toast } = useToast();
+  const { unreadCounts, markProjectMessagesAsRead } = useUnreadMessages(user);
 
   const fetchProjects = async () => {
     try {
@@ -375,6 +377,14 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
     setShowRenameDialog(true);
   };
 
+  const handleProjectOpen = (project: Project) => {
+    // Marcar mensagens como lidas ao abrir o projeto
+    if (unreadCounts[project.id] > 0) {
+      markProjectMessagesAsRead(project.id);
+    }
+    setSelectedProject(project);
+  };
+
   // Renderizar gerenciamento de permissões
   if (selectedProject && showPermissions) {
     return (
@@ -556,7 +566,13 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
                 {filteredProjects.map((project) => (
                   <div key={project.id} className="flex items-center justify-between p-4 border rounded-lg">
                     <div>
-                      <h3 className="font-semibold text-lg">{project.name}</h3>
+                      <div className="flex items-center">
+                        <h3 className="font-semibold text-lg">{project.name}</h3>
+                        <NotificationBadge 
+                          count={unreadCounts[project.id] || 0}
+                          onClick={() => handleProjectOpen(project)}
+                        />
+                      </div>
                       <p className="text-sm text-gray-600">
                         Criado em: {new Date(project.created_at).toLocaleDateString('pt-BR')}
                       </p>
@@ -566,7 +582,7 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => setSelectedProject(project)}
+                        onClick={() => handleProjectOpen(project)}
                       >
                         <FolderOpen className="h-4 w-4 mr-1" />
                         Abrir
