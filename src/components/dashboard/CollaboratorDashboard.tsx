@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from 'react';
 import { User } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
@@ -10,6 +11,8 @@ import { Grid3X3, LogOut, Search, Calendar, Loader2, Users, Eye } from 'lucide-r
 import ProjectGrid from '@/components/project/ProjectGrid';
 import { useUnreadMessages } from '@/hooks/useUnreadMessages';
 import { NotificationBadge } from '@/components/ui/notification-badge';
+import { usePagination } from '@/hooks/usePagination';
+import { ProjectPagination } from '@/components/ui/project-pagination';
 
 interface Project {
   id: string;
@@ -17,11 +20,14 @@ interface Project {
   created_at: string;
   updated_at: string;
   created_by: string;
+  archived: boolean;
 }
 
 interface CollaboratorDashboardProps {
   user: User;
 }
+
+const ITEMS_PER_PAGE = 6;
 
 const CollaboratorDashboard = ({ user }: CollaboratorDashboardProps) => {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -33,7 +39,7 @@ const CollaboratorDashboard = ({ user }: CollaboratorDashboardProps) => {
 
   const fetchProjects = async () => {
     try {
-      // Para colaboradores, buscar apenas projetos onde estão atribuídos
+      // Para colaboradores, buscar apenas projetos onde estão atribuídos E que não estão arquivados
       const { data, error } = await supabase
         .from('projects')
         .select(`
@@ -44,6 +50,7 @@ const CollaboratorDashboard = ({ user }: CollaboratorDashboardProps) => {
           )
         `)
         .eq('user_project_roles.user_id', user.id)
+        .eq('archived', false) // Explicitamente filtrar projetos não arquivados
         .order('created_at', { ascending: false });
 
       if (error) {
@@ -97,6 +104,21 @@ const CollaboratorDashboard = ({ user }: CollaboratorDashboardProps) => {
     project.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  const {
+    currentPage,
+    totalPages,
+    paginatedData: paginatedProjects,
+    goToPage,
+    canGoNext,
+    canGoPrevious,
+    startIndex,
+    endIndex,
+    totalItems
+  } = usePagination({
+    data: filteredProjects,
+    itemsPerPage: ITEMS_PER_PAGE
+  });
+
   if (selectedProject) {
     return (
       <ProjectGrid 
@@ -147,7 +169,7 @@ const CollaboratorDashboard = ({ user }: CollaboratorDashboardProps) => {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm font-medium text-gray-600">Projetos Disponíveis</p>
-                  <p className="text-3xl font-bold text-gray-900">{projects.length}</p>
+                  <p className="text-3xl font-bold text-gray-900">{totalItems}</p>
                 </div>
                 <div className="bg-emerald-100 p-3 rounded-full">
                   <Grid3X3 className="h-6 w-6 text-emerald-600" />
@@ -201,7 +223,7 @@ const CollaboratorDashboard = ({ user }: CollaboratorDashboardProps) => {
                 <Loader2 className="h-8 w-8 animate-spin text-emerald-600" />
                 <span className="ml-2 text-gray-600">Carregando projetos...</span>
               </div>
-            ) : filteredProjects.length === 0 ? (
+            ) : totalItems === 0 ? (
               <div className="text-center py-12">
                 <Grid3X3 className="h-12 w-12 text-gray-400 mx-auto mb-4" />
                 <h3 className="text-lg font-medium text-gray-900 mb-2">
@@ -215,50 +237,69 @@ const CollaboratorDashboard = ({ user }: CollaboratorDashboardProps) => {
                 </p>
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {filteredProjects.map((project) => (
-                  <Card key={project.id} className="hover:shadow-md transition-shadow cursor-pointer">
-                    <CardContent className="p-6">
-                      <div className="mb-3">
-                        <div className="flex items-center">
-                          <h3 
-                            className="font-semibold text-lg text-gray-900 hover:text-emerald-600 cursor-pointer"
-                            onClick={() => handleProjectOpen(project)}
-                          >
-                            {project.name}
-                          </h3>
-                          <NotificationBadge 
-                            count={unreadCounts[project.id] || 0}
-                            onClick={() => handleProjectOpen(project)}
-                          />
+              <>
+                {/* Projects Info */}
+                {totalItems > 0 && (
+                  <div className="mb-4 text-sm text-gray-600">
+                    Mostrando {startIndex + 1}-{endIndex} de {totalItems} projetos
+                  </div>
+                )}
+
+                {/* Projects Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {paginatedProjects.map((project) => (
+                    <Card key={project.id} className="hover:shadow-md transition-shadow cursor-pointer">
+                      <CardContent className="p-6">
+                        <div className="mb-3">
+                          <div className="flex items-center">
+                            <h3 
+                              className="font-semibold text-lg text-gray-900 hover:text-emerald-600 cursor-pointer"
+                              onClick={() => handleProjectOpen(project)}
+                            >
+                              {project.name}
+                            </h3>
+                            <NotificationBadge 
+                              count={unreadCounts[project.id] || 0}
+                              onClick={() => handleProjectOpen(project)}
+                            />
+                          </div>
                         </div>
-                      </div>
-                      <div className="space-y-2 text-sm text-gray-600">
-                        <p>
-                          <strong>Criado em:</strong> {new Date(project.created_at).toLocaleDateString('pt-BR')}
-                        </p>
-                        <p>
-                          <strong>Atualizado:</strong> {new Date(project.updated_at).toLocaleDateString('pt-BR')}
-                        </p>
-                      </div>
-                      <Button 
-                        className="w-full mt-4" 
-                        variant="outline"
-                        onClick={() => handleProjectOpen(project)}
-                      >
-                        <Eye className="h-4 w-4 mr-2" />
-                        Visualizar Projeto
-                        {unreadCounts[project.id] > 0 && (
-                          <NotificationBadge 
-                            count={unreadCounts[project.id]}
-                            className="ml-auto"
-                          />
-                        )}
-                      </Button>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
+                        <div className="space-y-2 text-sm text-gray-600">
+                          <p>
+                            <strong>Criado em:</strong> {new Date(project.created_at).toLocaleDateString('pt-BR')}
+                          </p>
+                          <p>
+                            <strong>Atualizado:</strong> {new Date(project.updated_at).toLocaleDateString('pt-BR')}
+                          </p>
+                        </div>
+                        <Button 
+                          className="w-full mt-4" 
+                          variant="outline"
+                          onClick={() => handleProjectOpen(project)}
+                        >
+                          <Eye className="h-4 w-4 mr-2" />
+                          Visualizar Projeto
+                          {unreadCounts[project.id] > 0 && (
+                            <NotificationBadge 
+                              count={unreadCounts[project.id]}
+                              className="ml-auto"
+                            />
+                          )}
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+
+                {/* Pagination */}
+                <ProjectPagination
+                  currentPage={currentPage}
+                  totalPages={totalPages}
+                  onPageChange={goToPage}
+                  canGoPrevious={canGoPrevious}
+                  canGoNext={canGoNext}
+                />
+              </>
             )}
           </CardContent>
         </Card>

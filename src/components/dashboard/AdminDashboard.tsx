@@ -14,6 +14,8 @@ import RolePermissionManager from '@/components/admin/RolePermissionManager';
 import UserRoleAssignment from '@/components/admin/UserRoleAssignment';
 import { useUnreadMessages } from '@/hooks/useUnreadMessages';
 import { NotificationBadge } from '@/components/ui/notification-badge';
+import { usePagination } from '@/hooks/usePagination';
+import { ProjectPagination } from '@/components/ui/project-pagination';
 
 interface Project {
   id: string;
@@ -28,6 +30,8 @@ interface Project {
 interface AdminDashboardProps {
   user: User;
 }
+
+const ITEMS_PER_PAGE = 8;
 
 const AdminDashboard = ({ user }: AdminDashboardProps) => {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -266,7 +270,6 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
     if (!newName?.trim()) return;
 
     try {
-      // 1. Criar novo projeto
       const { data: newProject, error: projectError } = await supabase
         .from('projects')
         .insert([{
@@ -280,10 +283,8 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
 
       console.log('Novo projeto criado:', newProject);
 
-      // 2. Aguardar um breve momento para garantir que o trigger foi executado
       await new Promise(resolve => setTimeout(resolve, 500));
 
-      // 3. Buscar colunas do projeto original
       const { data: originalColumns, error: originalColumnsError } = await supabase
         .from('project_columns')
         .select('*')
@@ -291,7 +292,6 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
 
       if (originalColumnsError) throw originalColumnsError;
 
-      // 4. Buscar colunas que já existem no novo projeto (criadas pelo trigger)
       const { data: existingColumns, error: existingColumnsError } = await supabase
         .from('project_columns')
         .select('column_key')
@@ -299,10 +299,8 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
 
       if (existingColumnsError) throw existingColumnsError;
 
-      // 5. Criar um Set com as chaves das colunas que já existem
       const existingColumnKeys = new Set(existingColumns?.map(col => col.column_key) || []);
 
-      // 6. Filtrar apenas as colunas que não existem no novo projeto
       const columnsToInsert = originalColumns
         ?.filter(col => !existingColumnKeys.has(col.column_key))
         .map(col => ({
@@ -316,7 +314,6 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
           is_calculated: col.is_calculated
         })) || [];
 
-      // 7. Inserir apenas as colunas que não existem
       if (columnsToInsert.length > 0) {
         const { error: insertColumnsError } = await supabase
           .from('project_columns')
@@ -328,7 +325,6 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
         console.log('Nenhuma coluna adicional para clonar (todas já existem)');
       }
 
-      // 8. Atualizar as colunas existentes com as configurações do projeto original
       if (originalColumns && originalColumns.length > 0) {
         for (const originalCol of originalColumns) {
           if (existingColumnKeys.has(originalCol.column_key)) {
@@ -350,7 +346,6 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
         console.log('Configurações das colunas existentes atualizadas');
       }
 
-      // 9. Clonar permissões de roles (estrutura de acesso)
       const { data: permissions, error: permissionsError } = await supabase
         .from('role_column_permissions')
         .select('*')
@@ -374,7 +369,6 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
         console.log('Permissões clonadas:', permissionsToInsert.length);
       }
 
-      // 10. Clonar usuários e suas roles no projeto
       const { data: userRoles, error: userRolesError } = await supabase
         .from('user_project_roles')
         .select('*')
@@ -387,7 +381,7 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
           user_id: userRole.user_id,
           project_id: newProject.id,
           role_name: userRole.role_name,
-          assigned_by: user.id // O admin que está clonando
+          assigned_by: user.id
         }));
 
         const { error: insertUserRolesError } = await supabase
@@ -520,8 +514,51 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
     );
   };
 
-  const ProjectList = ({ projectList, isArchived = false }: { projectList: Project[], isArchived?: boolean }) => (
+  const filteredActiveProjects = getFilteredProjects(activeProjects);
+  const filteredArchivedProjects = getFilteredProjects(archivedProjects);
+
+  const {
+    currentPage: activeCurrentPage,
+    totalPages: activeTotalPages,
+    paginatedData: paginatedActiveProjects,
+    goToPage: activeGoToPage,
+    canGoNext: activeCanGoNext,
+    canGoPrevious: activeCanGoPrevious,
+    startIndex: activeStartIndex,
+    endIndex: activeEndIndex,
+    totalItems: activeTotalItems
+  } = usePagination({
+    data: filteredActiveProjects,
+    itemsPerPage: ITEMS_PER_PAGE
+  });
+
+  const {
+    currentPage: archivedCurrentPage,
+    totalPages: archivedTotalPages,
+    paginatedData: paginatedArchivedProjects,
+    goToPage: archivedGoToPage,
+    canGoNext: archivedCanGoNext,
+    canGoPrevious: archivedCanGoPrevious,
+    startIndex: archivedStartIndex,
+    endIndex: archivedEndIndex,
+    totalItems: archivedTotalItems
+  } = usePagination({
+    data: filteredArchivedProjects,
+    itemsPerPage: ITEMS_PER_PAGE
+  });
+
+  const ProjectList = ({ projectList, isArchived = false, pagination }: { 
+    projectList: Project[], 
+    isArchived?: boolean,
+    pagination: any 
+  }) => (
     <div className="space-y-4">
+      {pagination.totalItems > 0 && (
+        <div className="mb-4 text-sm text-gray-600">
+          Mostrando {pagination.startIndex + 1}-{pagination.endIndex} de {pagination.totalItems} projetos
+        </div>
+      )}
+
       {projectList.map((project) => (
         <div key={project.id} className="flex items-center justify-between p-4 border rounded-lg">
           <div>
@@ -635,12 +672,19 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
           </div>
         </div>
       ))}
+
+      <ProjectPagination
+        currentPage={pagination.currentPage}
+        totalPages={pagination.totalPages}
+        onPageChange={pagination.goToPage}
+        canGoPrevious={pagination.canGoPrevious}
+        canGoNext={pagination.canGoNext}
+      />
     </div>
   );
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
-      {/* Header */}
       <header className="bg-white shadow-sm border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
@@ -662,9 +706,7 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
         </div>
       </header>
 
-      {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           <Card>
             <CardContent className="p-6">
@@ -692,7 +734,6 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
           </Card>
         </div>
 
-        {/* Projects Section with Tabs */}
         <Card>
           <CardHeader>
             <div className="flex justify-between items-center">
@@ -728,7 +769,6 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
               </Dialog>
             </div>
             
-            {/* Search */}
             <div className="flex items-center space-x-2 mt-4">
               <div className="relative flex-1 max-w-md">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
@@ -746,17 +786,17 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
             <Tabs value={activeTab} onValueChange={setActiveTab}>
               <TabsList className="grid w-full grid-cols-2">
                 <TabsTrigger value="active">
-                  Projetos Ativos ({activeProjects.length})
+                  Projetos Ativos ({activeTotalItems})
                 </TabsTrigger>
                 <TabsTrigger value="archived">
-                  Arquivados ({archivedProjects.length})
+                  Arquivados ({archivedTotalItems})
                 </TabsTrigger>
               </TabsList>
               
               <TabsContent value="active" className="mt-6">
                 {loading ? (
                   <div className="text-center py-8">Carregando projetos...</div>
-                ) : getFilteredProjects(activeProjects).length === 0 ? (
+                ) : activeTotalItems === 0 ? (
                   <div className="text-center py-12">
                     <h3 className="text-lg font-medium text-gray-900 mb-2">
                       {searchTerm ? 'Nenhum projeto ativo encontrado' : 'Nenhum projeto ativo'}
@@ -769,14 +809,26 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
                     </p>
                   </div>
                 ) : (
-                  <ProjectList projectList={getFilteredProjects(activeProjects)} />
+                  <ProjectList 
+                    projectList={paginatedActiveProjects} 
+                    pagination={{
+                      currentPage: activeCurrentPage,
+                      totalPages: activeTotalPages,
+                      goToPage: activeGoToPage,
+                      canGoPrevious: activeCanGoPrevious,
+                      canGoNext: activeCanGoNext,
+                      startIndex: activeStartIndex,
+                      endIndex: activeEndIndex,
+                      totalItems: activeTotalItems
+                    }}
+                  />
                 )}
               </TabsContent>
               
               <TabsContent value="archived" className="mt-6">
                 {loading ? (
                   <div className="text-center py-8">Carregando projetos arquivados...</div>
-                ) : getFilteredProjects(archivedProjects).length === 0 ? (
+                ) : archivedTotalItems === 0 ? (
                   <div className="text-center py-12">
                     <Archive className="h-12 w-12 text-gray-400 mx-auto mb-4" />
                     <h3 className="text-lg font-medium text-gray-900 mb-2">
@@ -790,7 +842,20 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
                     </p>
                   </div>
                 ) : (
-                  <ProjectList projectList={getFilteredProjects(archivedProjects)} isArchived={true} />
+                  <ProjectList 
+                    projectList={paginatedArchivedProjects} 
+                    isArchived={true}
+                    pagination={{
+                      currentPage: archivedCurrentPage,
+                      totalPages: archivedTotalPages,
+                      goToPage: archivedGoToPage,
+                      canGoPrevious: archivedCanGoPrevious,
+                      canGoNext: archivedCanGoNext,
+                      startIndex: archivedStartIndex,
+                      endIndex: archivedEndIndex,
+                      totalItems: archivedTotalItems
+                    }}
+                  />
                 )}
               </TabsContent>
             </Tabs>
@@ -798,7 +863,6 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
         </Card>
       </main>
 
-      {/* Rename Dialog */}
       <Dialog open={showRenameDialog} onOpenChange={setShowRenameDialog}>
         <DialogContent>
           <DialogHeader>
