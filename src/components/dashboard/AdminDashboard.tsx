@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { User } from '@supabase/supabase-js';
@@ -48,6 +49,49 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
   const [activeTab, setActiveTab] = useState('active');
   const { toast } = useToast();
   const { unreadCounts, markProjectMessagesAsRead } = useUnreadMessages(user);
+
+  // All hooks must be called before any conditional logic
+  const activeProjects = projects.filter(project => !project.archived);
+  const archivedProjects = projects.filter(project => project.archived);
+
+  const getFilteredProjects = (projectList: Project[]) => {
+    return projectList.filter(project =>
+      project.name.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+  };
+
+  const filteredActiveProjects = getFilteredProjects(activeProjects);
+  const filteredArchivedProjects = getFilteredProjects(archivedProjects);
+
+  const {
+    currentPage: activeCurrentPage,
+    totalPages: activeTotalPages,
+    paginatedData: paginatedActiveProjects,
+    goToPage: activeGoToPage,
+    canGoNext: activeCanGoNext,
+    canGoPrevious: activeCanGoPrevious,
+    startIndex: activeStartIndex,
+    endIndex: activeEndIndex,
+    totalItems: activeTotalItems
+  } = usePagination({
+    data: filteredActiveProjects,
+    itemsPerPage: ITEMS_PER_PAGE
+  });
+
+  const {
+    currentPage: archivedCurrentPage,
+    totalPages: archivedTotalPages,
+    paginatedData: paginatedArchivedProjects,
+    goToPage: archivedGoToPage,
+    canGoNext: archivedCanGoNext,
+    canGoPrevious: archivedCanGoPrevious,
+    startIndex: archivedStartIndex,
+    endIndex: archivedEndIndex,
+    totalItems: archivedTotalItems
+  } = usePagination({
+    data: filteredArchivedProjects,
+    itemsPerPage: ITEMS_PER_PAGE
+  });
 
   const fetchProjects = async () => {
     try {
@@ -439,6 +483,7 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
     setSelectedProject(project);
   };
 
+  // Now handle conditional rendering AFTER all hooks have been called
   if (selectedProject && showPermissions) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-50 to-white">
@@ -504,48 +549,6 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
       />
     );
   }
-
-  const activeProjects = projects.filter(project => !project.archived);
-  const archivedProjects = projects.filter(project => project.archived);
-
-  const getFilteredProjects = (projectList: Project[]) => {
-    return projectList.filter(project =>
-      project.name.toLowerCase().includes(searchTerm.toLowerCase())
-    );
-  };
-
-  const filteredActiveProjects = getFilteredProjects(activeProjects);
-  const filteredArchivedProjects = getFilteredProjects(archivedProjects);
-
-  const {
-    currentPage: activeCurrentPage,
-    totalPages: activeTotalPages,
-    paginatedData: paginatedActiveProjects,
-    goToPage: activeGoToPage,
-    canGoNext: activeCanGoNext,
-    canGoPrevious: activeCanGoPrevious,
-    startIndex: activeStartIndex,
-    endIndex: activeEndIndex,
-    totalItems: activeTotalItems
-  } = usePagination({
-    data: filteredActiveProjects,
-    itemsPerPage: ITEMS_PER_PAGE
-  });
-
-  const {
-    currentPage: archivedCurrentPage,
-    totalPages: archivedTotalPages,
-    paginatedData: paginatedArchivedProjects,
-    goToPage: archivedGoToPage,
-    canGoNext: archivedCanGoNext,
-    canGoPrevious: archivedCanGoPrevious,
-    startIndex: archivedStartIndex,
-    endIndex: archivedEndIndex,
-    totalItems: archivedTotalItems
-  } = usePagination({
-    data: filteredArchivedProjects,
-    itemsPerPage: ITEMS_PER_PAGE
-  });
 
   const ProjectList = ({ projectList, isArchived = false, pagination }: { 
     projectList: Project[], 
