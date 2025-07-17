@@ -6,8 +6,9 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
-import { Search, Plus, Edit, Trash2, LogOut, FolderOpen, Settings, Users, Copy } from 'lucide-react';
+import { Search, Plus, Edit, Trash2, LogOut, FolderOpen, Settings, Users, Copy, Archive, ArchiveRestore } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import ProjectGrid from '@/components/project/ProjectGrid';
 import RolePermissionManager from '@/components/admin/RolePermissionManager';
 import UserRoleAssignment from '@/components/admin/UserRoleAssignment';
@@ -20,6 +21,8 @@ interface Project {
   created_at: string;
   updated_at: string;
   created_by: string;
+  archived: boolean;
+  archived_at: string | null;
 }
 
 interface AdminDashboardProps {
@@ -38,6 +41,7 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [showPermissions, setShowPermissions] = useState(false);
   const [showUserManagement, setShowUserManagement] = useState(false);
+  const [activeTab, setActiveTab] = useState('active');
   const { toast } = useToast();
   const { unreadCounts, markProjectMessagesAsRead } = useUnreadMessages(user);
 
@@ -113,10 +117,8 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
       setNewProjectName('');
       setShowCreateDialog(false);
       
-      // Aguardar um breve momento para garantir que o trigger foi executado
       setTimeout(() => {
         fetchProjects();
-        // Abrir automaticamente o projeto recém-criado
         setSelectedProject(data);
       }, 500);
 
@@ -162,6 +164,68 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
       fetchProjects();
     } catch (err) {
       console.error('Error renaming project:', err);
+    }
+  };
+
+  const handleArchiveProject = async (project: Project) => {
+    try {
+      const { error } = await supabase
+        .from('projects')
+        .update({ 
+          archived: true,
+          archived_at: new Date().toISOString()
+        })
+        .eq('id', project.id);
+
+      if (error) {
+        console.error('Error archiving project:', error);
+        toast({
+          title: "Erro ao arquivar projeto",
+          description: error.message,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      toast({
+        title: "Projeto arquivado!",
+        description: `O projeto "${project.name}" foi arquivado`,
+      });
+
+      fetchProjects();
+    } catch (err) {
+      console.error('Error archiving project:', err);
+    }
+  };
+
+  const handleUnarchiveProject = async (project: Project) => {
+    try {
+      const { error } = await supabase
+        .from('projects')
+        .update({ 
+          archived: false,
+          archived_at: null
+        })
+        .eq('id', project.id);
+
+      if (error) {
+        console.error('Error unarchiving project:', error);
+        toast({
+          title: "Erro ao desarquivar projeto",
+          description: error.message,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      toast({
+        title: "Projeto desarquivado!",
+        description: `O projeto "${project.name}" foi desarquivado`,
+      });
+
+      fetchProjects();
+    } catch (err) {
+      console.error('Error unarchiving project:', err);
     }
   };
 
@@ -334,9 +398,6 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
         console.log('Usuários e roles clonados:', userRolesToInsert.length);
       }
 
-      // IMPORTANTE: NÃO clonar dados (project_items) nem chat (project_chat_messages)
-      // O novo projeto deve começar limpo, apenas com a estrutura
-
       toast({
         title: "Projeto clonado com sucesso!",
         description: `O projeto "${newName}" foi criado como uma cópia estrutural de "${project.name}". Os dados e chat não foram copiados, o projeto está limpo e pronto para uso.`,
@@ -378,14 +439,12 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
   };
 
   const handleProjectOpen = (project: Project) => {
-    // Marcar mensagens como lidas ao abrir o projeto
     if (unreadCounts[project.id] > 0) {
       markProjectMessagesAsRead(project.id);
     }
     setSelectedProject(project);
   };
 
-  // Renderizar gerenciamento de permissões
   if (selectedProject && showPermissions) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-50 to-white">
@@ -414,7 +473,6 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
     );
   }
 
-  // Renderizar gerenciamento de usuários
   if (selectedProject && showUserManagement) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-50 to-white">
@@ -443,7 +501,6 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
     );
   }
 
-  // Renderizar grid do projeto
   if (selectedProject && !showPermissions && !showUserManagement) {
     return (
       <ProjectGrid 
@@ -454,8 +511,131 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
     );
   }
 
-  const filteredProjects = projects.filter(project =>
-    project.name.toLowerCase().includes(searchTerm.toLowerCase())
+  const activeProjects = projects.filter(project => !project.archived);
+  const archivedProjects = projects.filter(project => project.archived);
+
+  const getFilteredProjects = (projectList: Project[]) => {
+    return projectList.filter(project =>
+      project.name.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+  };
+
+  const ProjectList = ({ projectList, isArchived = false }: { projectList: Project[], isArchived?: boolean }) => (
+    <div className="space-y-4">
+      {projectList.map((project) => (
+        <div key={project.id} className="flex items-center justify-between p-4 border rounded-lg">
+          <div>
+            <div className="flex items-center">
+              <h3 className="font-semibold text-lg">{project.name}</h3>
+              <NotificationBadge 
+                count={unreadCounts[project.id] || 0}
+                onClick={() => handleProjectOpen(project)}
+              />
+              {isArchived && (
+                <Badge variant="secondary" className="ml-2 bg-gray-100 text-gray-600">
+                  Arquivado
+                </Badge>
+              )}
+            </div>
+            <p className="text-sm text-gray-600">
+              Criado em: {new Date(project.created_at).toLocaleDateString('pt-BR')}
+              {isArchived && project.archived_at && (
+                <span className="ml-2">
+                  • Arquivado em: {new Date(project.archived_at).toLocaleDateString('pt-BR')}
+                </span>
+              )}
+            </p>
+          </div>
+          
+          <div className="flex space-x-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleProjectOpen(project)}
+            >
+              <FolderOpen className="h-4 w-4 mr-1" />
+              Abrir
+            </Button>
+            
+            {!isArchived && (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setSelectedProject(project);
+                    setShowPermissions(true);
+                  }}
+                >
+                  <Settings className="h-4 w-4 mr-1" />
+                  Permissões
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setSelectedProject(project);
+                    setShowUserManagement(true);
+                  }}
+                >
+                  <Users className="h-4 w-4 mr-1" />
+                  Usuários
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => openRenameDialog(project)}
+                >
+                  <Edit className="h-4 w-4 mr-1" />
+                  Renomear
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleCloneProject(project)}
+                  className="text-blue-600 hover:text-blue-700"
+                >
+                  <Copy className="h-4 w-4 mr-1" />
+                  Clonar
+                </Button>
+              </>
+            )}
+            
+            {isArchived ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleUnarchiveProject(project)}
+                className="text-green-600 hover:text-green-700"
+              >
+                <ArchiveRestore className="h-4 w-4 mr-1" />
+                Desarquivar
+              </Button>
+            ) : (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleArchiveProject(project)}
+                className="text-orange-600 hover:text-orange-700"
+              >
+                <Archive className="h-4 w-4 mr-1" />
+                Arquivar
+              </Button>
+            )}
+            
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleDeleteProject(project)}
+              className="text-red-600 hover:text-red-700"
+            >
+              <Trash2 className="h-4 w-4 mr-1" />
+              Deletar
+            </Button>
+          </div>
+        </div>
+      ))}
+    </div>
   );
 
   return (
@@ -489,14 +669,30 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
           <Card>
             <CardContent className="p-6">
               <div className="text-center">
+                <p className="text-sm text-gray-600">Projetos Ativos</p>
+                <p className="text-3xl font-bold text-blue-600">{activeProjects.length}</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-6">
+              <div className="text-center">
+                <p className="text-sm text-gray-600">Projetos Arquivados</p>
+                <p className="text-3xl font-bold text-gray-600">{archivedProjects.length}</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-6">
+              <div className="text-center">
                 <p className="text-sm text-gray-600">Total de Projetos</p>
-                <p className="text-3xl font-bold text-blue-600">{projects.length}</p>
+                <p className="text-3xl font-bold text-green-600">{projects.length}</p>
               </div>
             </CardContent>
           </Card>
         </div>
 
-        {/* Projects Section */}
+        {/* Projects Section with Tabs */}
         <Card>
           <CardHeader>
             <div className="flex justify-between items-center">
@@ -547,99 +743,57 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
           </CardHeader>
           
           <CardContent>
-            {loading ? (
-              <div className="text-center py-8">Carregando projetos...</div>
-            ) : filteredProjects.length === 0 ? (
-              <div className="text-center py-12">
-                <h3 className="text-lg font-medium text-gray-900 mb-2">
-                  {searchTerm ? 'Nenhum projeto encontrado' : 'Nenhum projeto criado'}
-                </h3>
-                <p className="text-gray-500 mb-4">
-                  {searchTerm 
-                    ? 'Tente buscar com termos diferentes' 
-                    : 'Comece criando seu primeiro projeto'
-                  }
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {filteredProjects.map((project) => (
-                  <div key={project.id} className="flex items-center justify-between p-4 border rounded-lg">
-                    <div>
-                      <div className="flex items-center">
-                        <h3 className="font-semibold text-lg">{project.name}</h3>
-                        <NotificationBadge 
-                          count={unreadCounts[project.id] || 0}
-                          onClick={() => handleProjectOpen(project)}
-                        />
-                      </div>
-                      <p className="text-sm text-gray-600">
-                        Criado em: {new Date(project.created_at).toLocaleDateString('pt-BR')}
-                      </p>
-                    </div>
-                    
-                    <div className="flex space-x-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleProjectOpen(project)}
-                      >
-                        <FolderOpen className="h-4 w-4 mr-1" />
-                        Abrir
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          setSelectedProject(project);
-                          setShowPermissions(true);
-                        }}
-                      >
-                        <Settings className="h-4 w-4 mr-1" />
-                        Permissões
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          setSelectedProject(project);
-                          setShowUserManagement(true);
-                        }}
-                      >
-                        <Users className="h-4 w-4 mr-1" />
-                        Usuários
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => openRenameDialog(project)}
-                      >
-                        <Edit className="h-4 w-4 mr-1" />
-                        Renomear
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleCloneProject(project)}
-                        className="text-blue-600 hover:text-blue-700"
-                      >
-                        <Copy className="h-4 w-4 mr-1" />
-                        Clonar
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleDeleteProject(project)}
-                        className="text-red-600 hover:text-red-700"
-                      >
-                        <Trash2 className="h-4 w-4 mr-1" />
-                        Deletar
-                      </Button>
-                    </div>
+            <Tabs value={activeTab} onValueChange={setActiveTab}>
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="active">
+                  Projetos Ativos ({activeProjects.length})
+                </TabsTrigger>
+                <TabsTrigger value="archived">
+                  Arquivados ({archivedProjects.length})
+                </TabsTrigger>
+              </TabsList>
+              
+              <TabsContent value="active" className="mt-6">
+                {loading ? (
+                  <div className="text-center py-8">Carregando projetos...</div>
+                ) : getFilteredProjects(activeProjects).length === 0 ? (
+                  <div className="text-center py-12">
+                    <h3 className="text-lg font-medium text-gray-900 mb-2">
+                      {searchTerm ? 'Nenhum projeto ativo encontrado' : 'Nenhum projeto ativo'}
+                    </h3>
+                    <p className="text-gray-500 mb-4">
+                      {searchTerm 
+                        ? 'Tente buscar com termos diferentes' 
+                        : 'Comece criando seu primeiro projeto'
+                      }
+                    </p>
                   </div>
-                ))}
-              </div>
-            )}
+                ) : (
+                  <ProjectList projectList={getFilteredProjects(activeProjects)} />
+                )}
+              </TabsContent>
+              
+              <TabsContent value="archived" className="mt-6">
+                {loading ? (
+                  <div className="text-center py-8">Carregando projetos arquivados...</div>
+                ) : getFilteredProjects(archivedProjects).length === 0 ? (
+                  <div className="text-center py-12">
+                    <Archive className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                    <h3 className="text-lg font-medium text-gray-900 mb-2">
+                      {searchTerm ? 'Nenhum projeto arquivado encontrado' : 'Nenhum projeto arquivado'}
+                    </h3>
+                    <p className="text-gray-500">
+                      {searchTerm 
+                        ? 'Tente buscar com termos diferentes' 
+                        : 'Projetos arquivados aparecerão aqui'
+                      }
+                    </p>
+                  </div>
+                ) : (
+                  <ProjectList projectList={getFilteredProjects(archivedProjects)} isArchived={true} />
+                )}
+              </TabsContent>
+            </Tabs>
           </CardContent>
         </Card>
       </main>
