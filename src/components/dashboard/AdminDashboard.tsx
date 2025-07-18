@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { User } from '@supabase/supabase-js';
@@ -7,9 +6,10 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
-import { Search, Plus, Edit, Trash2, LogOut, FolderOpen, Settings, Users, Copy, Archive, ArchiveRestore } from 'lucide-react';
+import { Search, Plus, Edit, Trash2, LogOut, FolderOpen, Settings, Users, Copy, Archive, ArchiveRestore, FileText } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Textarea } from '@/components/ui/textarea';
 import ProjectGrid from '@/components/project/ProjectGrid';
 import RolePermissionManager from '@/components/admin/RolePermissionManager';
 import UserRoleAssignment from '@/components/admin/UserRoleAssignment';
@@ -21,6 +21,7 @@ import { ProjectPagination } from '@/components/ui/project-pagination';
 interface Project {
   id: string;
   name: string;
+  description?: string;
   created_at: string;
   updated_at: string;
   created_by: string;
@@ -40,9 +41,13 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showRenameDialog, setShowRenameDialog] = useState(false);
+  const [showDescriptionDialog, setShowDescriptionDialog] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
+  const [newProjectDescription, setNewProjectDescription] = useState('');
   const [renameProjectName, setRenameProjectName] = useState('');
   const [projectToRename, setProjectToRename] = useState<Project | null>(null);
+  const [projectToEditDescription, setProjectToEditDescription] = useState<Project | null>(null);
+  const [editDescription, setEditDescription] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [showPermissions, setShowPermissions] = useState(false);
   const [showUserManagement, setShowUserManagement] = useState(false);
@@ -56,7 +61,8 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
 
   const getFilteredProjects = (projectList: Project[]) => {
     return projectList.filter(project =>
-      project.name.toLowerCase().includes(searchTerm.toLowerCase())
+      project.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (project.description && project.description.toLowerCase().includes(searchTerm.toLowerCase()))
     );
   };
 
@@ -98,7 +104,7 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
       const { data, error } = await supabase
         .from('projects')
         .select('*')
-        .order('created_at', { ascending: false });
+        .order('updated_at', { ascending: false }); // Order by most recently updated
 
       if (error) {
         console.error('Error fetching projects:', error);
@@ -142,6 +148,7 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
         .from('projects')
         .insert([{
           name: newProjectName.trim(),
+          description: newProjectDescription.trim() || '',
           created_by: user.id,
         }])
         .select()
@@ -163,6 +170,7 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
       });
 
       setNewProjectName('');
+      setNewProjectDescription('');
       setShowCreateDialog(false);
       
       setTimeout(() => {
@@ -212,6 +220,39 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
       fetchProjects();
     } catch (err) {
       console.error('Error renaming project:', err);
+    }
+  };
+
+  const handleUpdateDescription = async () => {
+    if (!projectToEditDescription) return;
+
+    try {
+      const { error } = await supabase
+        .from('projects')
+        .update({ description: editDescription.trim() })
+        .eq('id', projectToEditDescription.id);
+
+      if (error) {
+        console.error('Error updating description:', error);
+        toast({
+          title: "Erro ao atualizar descrição",
+          description: error.message,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      toast({
+        title: "Descrição atualizada!",
+        description: "A descrição do projeto foi atualizada com sucesso",
+      });
+
+      setEditDescription('');
+      setShowDescriptionDialog(false);
+      setProjectToEditDescription(null);
+      fetchProjects();
+    } catch (err) {
+      console.error('Error updating description:', err);
     }
   };
 
@@ -318,6 +359,7 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
         .from('projects')
         .insert([{
           name: newName.trim(),
+          description: project.description || '',
           created_by: user.id,
         }])
         .select()
@@ -476,6 +518,12 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
     setShowRenameDialog(true);
   };
 
+  const openDescriptionDialog = (project: Project) => {
+    setProjectToEditDescription(project);
+    setEditDescription(project.description || '');
+    setShowDescriptionDialog(true);
+  };
+
   const handleProjectOpen = (project: Project) => {
     if (unreadCounts[project.id] > 0) {
       markProjectMessagesAsRead(project.id);
@@ -563,8 +611,8 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
       )}
 
       {projectList.map((project) => (
-        <div key={project.id} className="flex items-center justify-between p-4 border rounded-lg">
-          <div>
+        <div key={project.id} className="flex items-start justify-between p-4 border rounded-lg">
+          <div className="flex-1">
             <div className="flex items-center">
               <h3 className="font-semibold text-lg">{project.name}</h3>
               <NotificationBadge 
@@ -577,8 +625,18 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
                 </Badge>
               )}
             </div>
-            <p className="text-sm text-gray-600">
+            {project.description && (
+              <p className="text-sm text-gray-600 mt-2 line-clamp-2 max-w-md">
+                {project.description}
+              </p>
+            )}
+            <p className="text-sm text-gray-500 mt-2">
               Criado em: {new Date(project.created_at).toLocaleDateString('pt-BR')}
+              {project.updated_at !== project.created_at && (
+                <span className="ml-2">
+                  • Atualizado em: {new Date(project.updated_at).toLocaleDateString('pt-BR')}
+                </span>
+              )}
               {isArchived && project.archived_at && (
                 <span className="ml-2">
                   • Arquivado em: {new Date(project.archived_at).toLocaleDateString('pt-BR')}
@@ -587,7 +645,7 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
             </p>
           </div>
           
-          <div className="flex space-x-2">
+          <div className="flex flex-wrap gap-2 ml-4">
             <Button
               variant="outline"
               size="sm"
@@ -620,6 +678,14 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
                 >
                   <Users className="h-4 w-4 mr-1" />
                   Usuários
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => openDescriptionDialog(project)}
+                >
+                  <FileText className="h-4 w-4 mr-1" />
+                  Descrição
                 </Button>
                 <Button
                   variant="outline"
@@ -757,7 +823,13 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
                       placeholder="Nome do projeto"
                       value={newProjectName}
                       onChange={(e) => setNewProjectName(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && handleCreateProject()}
+                      onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleCreateProject()}
+                    />
+                    <Textarea
+                      placeholder="Descrição do projeto (opcional)"
+                      value={newProjectDescription}
+                      onChange={(e) => setNewProjectDescription(e.target.value)}
+                      rows={3}
                     />
                     <div className="flex space-x-2">
                       <Button variant="outline" onClick={() => setShowCreateDialog(false)}>
@@ -776,7 +848,7 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
               <div className="relative flex-1 max-w-md">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
                 <Input
-                  placeholder="Buscar projetos..."
+                  placeholder="Buscar projetos (nome ou descrição)..."
                   className="pl-10"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
@@ -866,6 +938,7 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
         </Card>
       </main>
 
+      {/* Rename Dialog */}
       <Dialog open={showRenameDialog} onOpenChange={setShowRenameDialog}>
         <DialogContent>
           <DialogHeader>
@@ -883,6 +956,31 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
               </Button>
               <Button onClick={handleRenameProject}>
                 Renomear
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Description Dialog */}
+      <Dialog open={showDescriptionDialog} onOpenChange={setShowDescriptionDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Editar Descrição do Projeto</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Textarea
+              placeholder="Descrição do projeto..."
+              value={editDescription}
+              onChange={(e) => setEditDescription(e.target.value)}
+              rows={4}
+            />
+            <div className="flex space-x-2">
+              <Button variant="outline" onClick={() => setShowDescriptionDialog(false)}>
+                Cancelar
+              </Button>
+              <Button onClick={handleUpdateDescription}>
+                Salvar
               </Button>
             </div>
           </div>

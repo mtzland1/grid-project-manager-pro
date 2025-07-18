@@ -17,6 +17,7 @@ import { ProjectPagination } from '@/components/ui/project-pagination';
 interface Project {
   id: string;
   name: string;
+  description?: string;
   created_at: string;
   updated_at: string;
   created_by: string;
@@ -51,7 +52,7 @@ const CollaboratorDashboard = ({ user }: CollaboratorDashboardProps) => {
         `)
         .eq('user_project_roles.user_id', user.id)
         .eq('archived', false) // Explicitamente filtrar projetos não arquivados
-        .order('created_at', { ascending: false });
+        .order('updated_at', { ascending: false }); // Order by most recently updated
 
       if (error) {
         console.error('Error fetching projects:', error);
@@ -101,7 +102,8 @@ const CollaboratorDashboard = ({ user }: CollaboratorDashboardProps) => {
   };
 
   const filteredProjects = projects.filter(project =>
-    project.name.toLowerCase().includes(searchTerm.toLowerCase())
+    project.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (project.description && project.description.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
   const {
@@ -208,7 +210,7 @@ const CollaboratorDashboard = ({ user }: CollaboratorDashboardProps) => {
               <div className="relative flex-1 max-w-md">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
                 <Input
-                  placeholder="Buscar projetos..."
+                  placeholder="Buscar projetos (nome ou descrição)..."
                   className="pl-10"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
@@ -263,14 +265,21 @@ const CollaboratorDashboard = ({ user }: CollaboratorDashboardProps) => {
                               onClick={() => handleProjectOpen(project)}
                             />
                           </div>
+                          {project.description && (
+                            <p className="text-sm text-gray-600 mt-2 line-clamp-2">
+                              {project.description}
+                            </p>
+                          )}
                         </div>
                         <div className="space-y-2 text-sm text-gray-600">
                           <p>
                             <strong>Criado em:</strong> {new Date(project.created_at).toLocaleDateString('pt-BR')}
                           </p>
-                          <p>
-                            <strong>Atualizado:</strong> {new Date(project.updated_at).toLocaleDateString('pt-BR')}
-                          </p>
+                          {project.updated_at !== project.created_at && (
+                            <p>
+                              <strong>Atualizado:</strong> {new Date(project.updated_at).toLocaleDateString('pt-BR')}
+                            </p>
+                          )}
                         </div>
                         <Button 
                           className="w-full mt-4" 
