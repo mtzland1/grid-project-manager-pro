@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowLeft, Plus, Save, Trash2, Edit, Search, Download, MessageCircle, Filter, MoreVertical } from 'lucide-react';
+import { ArrowLeft, Plus, Save, Trash2, Edit, Search, Download, MessageCircle, MoreVertical } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useUserPermissions } from '@/hooks/useUserPermissions';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
@@ -12,6 +12,7 @@ import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import ProjectChat from './ProjectChat';
+import { useExcelExport } from '@/hooks/useExcelExport';
 
 interface Project {
   id: string;
@@ -83,6 +84,7 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [showChat, setShowChat] = useState(false);
   const { toast } = useToast();
+  const { exportProjectToExcel, isExporting } = useExcelExport();
   
   // Usar hook de permissões
   const { permissions, canViewColumn, canEditColumn } = useUserPermissions(project.id);
@@ -166,6 +168,10 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleExportToExcel = () => {
+    exportProjectToExcel(project.id, project.name);
   };
 
   useEffect(() => {
@@ -499,11 +505,6 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
                 />
               </div>
               
-              <Button variant="outline" size="sm">
-                <Filter className="h-4 w-4 mr-2" />
-                Filtros
-              </Button>
-              
               {permissions.canCreate && (
                 <Button onClick={handleAddRow} className="shadow-md">
                   <Plus className="h-4 w-4 mr-2" />
@@ -536,9 +537,9 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  <DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleExportToExcel} disabled={isExporting}>
                     <Download className="h-4 w-4 mr-2" />
-                    Exportar Excel
+                    {isExporting ? 'Exportando...' : 'Exportar Excel'}
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
