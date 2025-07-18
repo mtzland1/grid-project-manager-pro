@@ -5,8 +5,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { useToast } from '@/hooks/use-toast';
-import { Search, Plus, Edit, Trash2, LogOut, FolderOpen, Settings, Users, Copy, Archive, ArchiveRestore, FileText } from 'lucide-react';
+import { Search, Plus, Edit, Trash2, LogOut, FolderOpen, Settings, Users, Copy, Archive, ArchiveRestore, FileText, MoreVertical } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
@@ -679,65 +680,63 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
                   <Users className="h-4 w-4 mr-1" />
                   Usuários
                 </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => openDescriptionDialog(project)}
-                >
-                  <FileText className="h-4 w-4 mr-1" />
-                  Descrição
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => openRenameDialog(project)}
-                >
-                  <Edit className="h-4 w-4 mr-1" />
-                  Renomear
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handleCloneProject(project)}
-                  className="text-blue-600 hover:text-blue-700"
-                >
-                  <Copy className="h-4 w-4 mr-1" />
-                  Clonar
-                </Button>
               </>
             )}
             
-            {isArchived ? (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handleUnarchiveProject(project)}
-                className="text-green-600 hover:text-green-700"
-              >
-                <ArchiveRestore className="h-4 w-4 mr-1" />
-                Desarquivar
-              </Button>
-            ) : (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handleArchiveProject(project)}
-                className="text-orange-600 hover:text-orange-700"
-              >
-                <Archive className="h-4 w-4 mr-1" />
-                Arquivar
-              </Button>
-            )}
-            
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => handleDeleteProject(project)}
-              className="text-red-600 hover:text-red-700"
-            >
-              <Trash2 className="h-4 w-4 mr-1" />
-              Deletar
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm">
+                  <MoreVertical className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                {!isArchived && (
+                  <>
+                    <DropdownMenuItem onClick={() => openDescriptionDialog(project)}>
+                      <FileText className="h-4 w-4 mr-2" />
+                      Descrição
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => openRenameDialog(project)}>
+                      <Edit className="h-4 w-4 mr-2" />
+                      Renomear
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => handleCloneProject(project)}>
+                      <Copy className="h-4 w-4 mr-2" />
+                      Clonar
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem 
+                      onClick={() => handleArchiveProject(project)}
+                      className="text-orange-600 focus:text-orange-700"
+                    >
+                      <Archive className="h-4 w-4 mr-2" />
+                      Arquivar
+                    </DropdownMenuItem>
+                  </>
+                )}
+                
+                {isArchived && (
+                  <>
+                    <DropdownMenuItem 
+                      onClick={() => handleUnarchiveProject(project)}
+                      className="text-green-600 focus:text-green-700"
+                    >
+                      <ArchiveRestore className="h-4 w-4 mr-2" />
+                      Desarquivar
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                  </>
+                )}
+                
+                <DropdownMenuItem 
+                  onClick={() => handleDeleteProject(project)}
+                  className="text-red-600 focus:text-red-700"
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Deletar
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
       ))}
