@@ -1,32 +1,27 @@
 
 import React from 'react';
 import { ImportProjectDialog } from './import-project-dialog';
-import { useProjectImport } from '../../hooks/useProjectImport';
+import { useProjectImportWithCreation } from '../../hooks/useProjectImportWithCreation';
 
 export const ImportProjectExample: React.FC = () => {
-  const { importProjects, loading, error, setError } = useProjectImport();
+  const { importAndCreateProject, loading, error, setError } = useProjectImportWithCreation();
 
   const handleImport = async (file: File) => {
     try {
-      const projects = await importProjects(file);
-      console.log('Projetos importados:', projects);
+      const newProject = await importAndCreateProject(file);
+      console.log('Projeto criado com sucesso:', newProject);
       
-      // Aqui você pode adicionar a lógica para salvar os projetos no banco de dados
-      // Por exemplo, usando Supabase:
-      // await supabase.from('projects').insert(projects);
-      
-      alert(`${projects.length} projetos importados com sucesso!`);
+      // Opcional: redirecionar para o projeto criado ou atualizar a lista
+      window.location.reload(); // Recarrega a página para mostrar o novo projeto
     } catch (error) {
       console.error('Erro na importação:', error);
     }
   };
 
   return (
-    <div className="p-4">
-      <h2 className="text-xl font-bold mb-4">Exemplo de Importação de Projetos</h2>
-      
+    <div className="flex flex-col gap-4">
       {error && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
+        <div className="p-3 bg-red-50 border border-red-200 rounded-md">
           <p className="text-red-800">{error}</p>
           <button 
             onClick={() => setError(null)}
@@ -40,8 +35,8 @@ export const ImportProjectExample: React.FC = () => {
       <ImportProjectDialog onImport={handleImport} />
       
       {loading && (
-        <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
-          <p className="text-blue-800">Processando arquivo...</p>
+        <div className="p-3 bg-blue-50 border border-blue-200 rounded-md">
+          <p className="text-blue-800">Processando arquivo e criando projeto...</p>
         </div>
       )}
     </div>

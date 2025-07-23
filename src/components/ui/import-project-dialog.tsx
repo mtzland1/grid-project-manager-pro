@@ -5,13 +5,14 @@ import { Button } from './button';
 import { Upload, FileText, AlertCircle } from 'lucide-react';
 
 interface ImportProjectDialogProps {
-  onImport: (file: File) => void;
+  onImport: (file: File) => Promise<void>;
 }
 
 export const ImportProjectDialog: React.FC<ImportProjectDialogProps> = ({ onImport }) => {
   const [dragOver, setDragOver] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [open, setOpen] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
 
   const handleFileSelect = (file: File) => {
     if (file.type === 'text/csv' || file.name.endsWith('.csv') || 
@@ -50,16 +51,32 @@ export const ImportProjectDialog: React.FC<ImportProjectDialogProps> = ({ onImpo
     }
   };
 
-  const handleImport = () => {
-    if (selectedFile) {
-      onImport(selectedFile);
-      setSelectedFile(null);
-      setOpen(false);
+  const handleImport = async () => {
+    if (selectedFile && onImport) {
+      setIsImporting(true);
+      try {
+        await onImport(selectedFile);
+        setSelectedFile(null);
+        setOpen(false);
+      } catch (error) {
+        console.error('Erro na importação:', error);
+      } finally {
+        setIsImporting(false);
+      }
+    }
+  };
+
+  const handleOpenChange = (newOpen: boolean) => {
+    if (!isImporting) {
+      setOpen(newOpen);
+      if (!newOpen) {
+        setSelectedFile(null);
+      }
     }
   };
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
         <Button variant="outline" className="flex items-center gap-2">
           <Upload className="h-4 w-4" />
@@ -79,7 +96,7 @@ export const ImportProjectDialog: React.FC<ImportProjectDialogProps> = ({ onImpo
           
           <div
             className={`
-              border-2 border-dashed rounded-lg p-8 text-center transition-colors
+              border-2 border-dashed rounded-lg p-8 text-center transition-colors relative
               ${dragOver ? 'border-primary bg-primary/10' : 'border-muted-foreground/25'}
               ${selectedFile ? 'border-green-500 bg-green-50' : ''}
             `}
@@ -108,15 +125,23 @@ export const ImportProjectDialog: React.FC<ImportProjectDialogProps> = ({ onImpo
               accept=".csv,.xlsx"
               onChange={handleFileInputChange}
               className="absolute inset-0 opacity-0 cursor-pointer"
+              disabled={isImporting}
             />
           </div>
           
           <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setOpen(false)}>
+            <Button 
+              variant="outline" 
+              onClick={() => handleOpenChange(false)}
+              disabled={isImporting}
+            >
               Cancelar
             </Button>
-            <Button onClick={handleImport} disabled={!selectedFile}>
-              Importar
+            <Button 
+              onClick={handleImport} 
+              disabled={!selectedFile || isImporting}
+            >
+              {isImporting ? 'Importando...' : 'Importar'}
             </Button>
           </div>
         </div>
