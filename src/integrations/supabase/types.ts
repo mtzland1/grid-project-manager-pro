@@ -192,7 +192,6 @@ export type Database = {
       }
       project_items: {
         Row: {
-          a_comprar: string | null
           cc_encargos_valor: number
           cc_icms_pr: number
           cc_icms_revenda: number
@@ -204,35 +203,22 @@ export type Database = {
           cc_mo_uni: number
           cc_pis_cofins: number
           cc_total: number
-          comprado: string | null
-          conferencia_estoque: string | null
           created_at: string
-          cronograma_inicio: string | null
-          data_conclusao: string | null
-          data_medicoes: string | null
           desconto: number
           descricao: string
           distribuidor: string | null
           dynamic_data: Json | null
-          expedicao: string | null
           id: string
           ipi: number
-          manutencao: string | null
           mat_uni_pr: number
-          previsao_chegada: string | null
-          prioridade_compra: string | null
           project_id: string
           qtd: number
-          reanalise_escopo: string | null
-          reanalise_mo: string | null
-          status_global: string | null
           unidade: string
           updated_at: string
           vlr_total_estimado: number
           vlr_total_venda: number
         }
         Insert: {
-          a_comprar?: string | null
           cc_encargos_valor?: number
           cc_icms_pr?: number
           cc_icms_revenda?: number
@@ -244,35 +230,22 @@ export type Database = {
           cc_mo_uni?: number
           cc_pis_cofins?: number
           cc_total?: number
-          comprado?: string | null
-          conferencia_estoque?: string | null
           created_at?: string
-          cronograma_inicio?: string | null
-          data_conclusao?: string | null
-          data_medicoes?: string | null
           desconto?: number
           descricao: string
           distribuidor?: string | null
           dynamic_data?: Json | null
-          expedicao?: string | null
           id?: string
           ipi?: number
-          manutencao?: string | null
           mat_uni_pr?: number
-          previsao_chegada?: string | null
-          prioridade_compra?: string | null
           project_id: string
           qtd?: number
-          reanalise_escopo?: string | null
-          reanalise_mo?: string | null
-          status_global?: string | null
           unidade?: string
           updated_at?: string
           vlr_total_estimado?: number
           vlr_total_venda?: number
         }
         Update: {
-          a_comprar?: string | null
           cc_encargos_valor?: number
           cc_icms_pr?: number
           cc_icms_revenda?: number
@@ -284,28 +257,16 @@ export type Database = {
           cc_mo_uni?: number
           cc_pis_cofins?: number
           cc_total?: number
-          comprado?: string | null
-          conferencia_estoque?: string | null
           created_at?: string
-          cronograma_inicio?: string | null
-          data_conclusao?: string | null
-          data_medicoes?: string | null
           desconto?: number
           descricao?: string
           distribuidor?: string | null
           dynamic_data?: Json | null
-          expedicao?: string | null
           id?: string
           ipi?: number
-          manutencao?: string | null
           mat_uni_pr?: number
-          previsao_chegada?: string | null
-          prioridade_compra?: string | null
           project_id?: string
           qtd?: number
-          reanalise_escopo?: string | null
-          reanalise_mo?: string | null
-          status_global?: string | null
           unidade?: string
           updated_at?: string
           vlr_total_estimado?: number
