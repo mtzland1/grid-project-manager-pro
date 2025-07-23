@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { useToast } from '@/hooks/use-toast';
-import { Search, Plus, Edit, Trash2, LogOut, FolderOpen, Settings, Users, Copy, Archive, ArchiveRestore, FileText, MoreVertical } from 'lucide-react';
+import { Search, Plus, Edit, Trash2, LogOut, FolderOpen, Settings, Users, Copy, Archive, ArchiveRestore, FileText, MoreVertical, Upload } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
@@ -18,6 +18,8 @@ import { useUnreadMessages } from '@/hooks/useUnreadMessages';
 import { NotificationBadge } from '@/components/ui/notification-badge';
 import { usePagination } from '@/hooks/usePagination';
 import { ProjectPagination } from '@/components/ui/project-pagination';
+import { ImportProjectDialog } from '@/components/ui/import-project-dialog';
+import { useProjectImport } from '@/hooks/useProjectImport';
 
 interface Project {
   id: string;
@@ -55,6 +57,8 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
   const [activeTab, setActiveTab] = useState('active');
   const { toast } = useToast();
   const { unreadCounts, markProjectMessagesAsRead } = useUnreadMessages(user);
+
+  const { importProjects, loading: importLoading, error: importError, setError: setImportError } = useProjectImport();
 
   // All hooks must be called before any conditional logic
   const activeProjects = projects.filter(project => !project.archived);
@@ -532,6 +536,50 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
     setSelectedProject(project);
   };
 
+  const handleImportProject = async (file: File) => {
+    try {
+      const projects = await importProjects(file);
+      console.log('Projetos importados:', projects);
+      
+      // Salvar os projetos no banco de dados
+      const projectsToInsert = projects.map(project => ({
+        name: project.name,
+        description: project.description || '',
+        created_by: user.id,
+      }));
+
+      const { data, error } = await supabase
+        .from('projects')
+        .insert(projectsToInsert)
+        .select();
+
+      if (error) {
+        console.error('Erro ao salvar projetos:', error);
+        toast({
+          title: "Erro ao salvar projetos",
+          description: error.message,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      toast({
+        title: "Projetos importados com sucesso!",
+        description: `${projects.length} projetos foram importados e salvos`,
+      });
+
+      // Recarregar a lista de projetos
+      fetchProjects();
+    } catch (error) {
+      console.error('Erro na importação:', error);
+      toast({
+        title: "Erro na importação",
+        description: "Não foi possível importar os projetos",
+        variant: "destructive",
+      });
+    }
+  };
+
   // Now handle conditional rendering AFTER all hooks have been called
   if (selectedProject && showPermissions) {
     return (
@@ -806,42 +854,65 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
           <CardHeader>
             <div className="flex justify-between items-center">
               <CardTitle>Gerenciamento de Projetos</CardTitle>
-              <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
-                <DialogTrigger asChild>
-                  <Button>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Novo Projeto
-                  </Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Criar Novo Projeto</DialogTitle>
-                  </DialogHeader>
-                  <div className="space-y-4">
-                    <Input
-                      placeholder="Nome do projeto"
-                      value={newProjectName}
-                      onChange={(e) => setNewProjectName(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleCreateProject()}
-                    />
-                    <Textarea
-                      placeholder="Descrição do projeto (opcional)"
-                      value={newProjectDescription}
-                      onChange={(e) => setNewProjectDescription(e.target.value)}
-                      rows={3}
-                    />
-                    <div className="flex space-x-2">
-                      <Button variant="outline" onClick={() => setShowCreateDialog(false)}>
-                        Cancelar
-                      </Button>
-                      <Button onClick={handleCreateProject}>
-                        Criar
-                      </Button>
+              <div className="flex items-center space-x-2">
+                <ImportProjectDialog onImport={handleImportProject} />
+                <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
+                  <DialogTrigger asChild>
+                    <Button>
+                      <Plus className="h-4 w-4 mr-2" />
+                      Novo Projeto
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Criar Novo Projeto</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-4">
+                      <Input
+                        placeholder="Nome do projeto"
+                        value={newProjectName}
+                        onChange={(e) => setNewProjectName(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleCreateProject()}
+                      />
+                      <Textarea
+                        placeholder="Descrição do projeto (opcional)"
+                        value={newProjectDescription}
+                        onChange={(e) => setNewProjectDescription(e.target.value)}
+                        rows={3}
+                      />
+                      <div className="flex space-x-2">
+                        <Button variant="outline" onClick={() => setShowCreateDialog(false)}>
+                          Cancelar
+                        </Button>
+                        <Button onClick={handleCreateProject}>
+                          Criar
+                        </Button>
+                      </div>
                     </div>
-                  </div>
-                </DialogContent>
-              </Dialog>
+                  </DialogContent>
+                </Dialog>
+              </div>
             </div>
+            
+            {/* Error message for import */}
+            {importError && (
+              <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-md">
+                <p className="text-red-800">{importError}</p>
+                <button 
+                  onClick={() => setImportError(null)}
+                  className="text-red-600 hover:text-red-800 text-sm underline"
+                >
+                  Fechar
+                </button>
+              </div>
+            )}
+            
+            {/* Loading indicator for import */}
+            {importLoading && (
+              <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
+                <p className="text-blue-800">Processando arquivo...</p>
+              </div>
+            )}
             
             <div className="flex items-center space-x-2 mt-4">
               <div className="relative flex-1 max-w-md">
