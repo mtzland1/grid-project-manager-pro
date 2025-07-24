@@ -65,10 +65,15 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
   const archivedProjects = projects.filter(project => project.archived);
 
   const getFilteredProjects = (projectList: Project[]) => {
-    return projectList.filter(project =>
-      project.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (project.description && project.description.toLowerCase().includes(searchTerm.toLowerCase()))
-    );
+    return projectList.filter(project => {
+      // Add null safety checks for project name and description
+      const projectName = project.name || '';
+      const projectDescription = project.description || '';
+      const searchTermLower = searchTerm.toLowerCase();
+      
+      return projectName.toLowerCase().includes(searchTermLower) ||
+             projectDescription.toLowerCase().includes(searchTermLower);
+    });
   };
 
   const filteredActiveProjects = getFilteredProjects(activeProjects);
@@ -663,7 +668,7 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
         <div key={project.id} className="flex items-start justify-between p-4 border rounded-lg">
           <div className="flex-1">
             <div className="flex items-center">
-              <h3 className="font-semibold text-lg">{project.name}</h3>
+              <h3 className="font-semibold text-lg">{project.name || 'Projeto sem nome'}</h3>
               <NotificationBadge 
                 count={unreadCounts[project.id] || 0}
                 onClick={() => handleProjectOpen(project)}
