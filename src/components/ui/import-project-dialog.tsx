@@ -17,12 +17,19 @@ export const ImportProjectDialog: React.FC<ImportProjectDialogProps> = ({ onImpo
   const [projectDescription, setProjectDescription] = useState('');
   const [open, setOpen] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  const [nameError, setNameError] = useState('');
 
   const handleFileSelect = (file: File) => {
     if (file.type === 'text/csv' || file.name.endsWith('.csv') || 
         file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || 
         file.name.endsWith('.xlsx')) {
       setSelectedFile(file);
+      
+      // Se o nome do projeto estiver vazio, sugerir o nome do arquivo
+      if (!projectName.trim()) {
+        const fileName = file.name.replace(/\.(csv|xlsx)$/i, '');
+        setProjectName(fileName);
+      }
     } else {
       alert('Por favor, selecione apenas arquivos CSV ou XLSX');
     }
@@ -55,20 +62,37 @@ export const ImportProjectDialog: React.FC<ImportProjectDialogProps> = ({ onImpo
     }
   };
 
+  const validateProjectName = (name: string) => {
+    if (!name.trim()) {
+      setNameError('Nome do projeto é obrigatório');
+      return false;
+    }
+    setNameError('');
+    return true;
+  };
+
   const handleImport = async () => {
-    if (selectedFile && projectName.trim() && onImport) {
-      setIsImporting(true);
-      try {
-        await onImport(selectedFile, projectName.trim(), projectDescription.trim() || undefined);
-        setSelectedFile(null);
-        setProjectName('');
-        setProjectDescription('');
-        setOpen(false);
-      } catch (error) {
-        console.error('Erro na importação:', error);
-      } finally {
-        setIsImporting(false);
-      }
+    if (!selectedFile) {
+      alert('Por favor, selecione um arquivo');
+      return;
+    }
+
+    if (!validateProjectName(projectName)) {
+      return;
+    }
+
+    setIsImporting(true);
+    try {
+      await onImport(selectedFile, projectName.trim(), projectDescription.trim() || undefined);
+      setSelectedFile(null);
+      setProjectName('');
+      setProjectDescription('');
+      setNameError('');
+      setOpen(false);
+    } catch (error) {
+      console.error('Erro na importação:', error);
+    } finally {
+      setIsImporting(false);
     }
   };
 
@@ -79,7 +103,16 @@ export const ImportProjectDialog: React.FC<ImportProjectDialogProps> = ({ onImpo
         setSelectedFile(null);
         setProjectName('');
         setProjectDescription('');
+        setNameError('');
       }
+    }
+  };
+
+  const handleProjectNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setProjectName(value);
+    if (nameError) {
+      validateProjectName(value);
     }
   };
 
@@ -143,10 +176,14 @@ export const ImportProjectDialog: React.FC<ImportProjectDialogProps> = ({ onImpo
               <Input
                 id="project-name"
                 value={projectName}
-                onChange={(e) => setProjectName(e.target.value)}
+                onChange={handleProjectNameChange}
                 placeholder="Digite o nome do projeto"
                 disabled={isImporting}
+                className={nameError ? 'border-red-500' : ''}
               />
+              {nameError && (
+                <p className="text-sm text-red-500">{nameError}</p>
+              )}
             </div>
             
             <div className="space-y-2">

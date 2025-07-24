@@ -13,6 +13,11 @@ export const useProjectImportWithCreation = () => {
     setIsCreating(true);
     
     try {
+      // Validar se o nome do projeto foi fornecido
+      if (!projectName || projectName.trim() === '') {
+        throw new Error('Nome do projeto é obrigatório');
+      }
+
       // Primeiro, importar os dados do arquivo
       const projects = await importProjects(file);
       
@@ -35,8 +40,8 @@ export const useProjectImportWithCreation = () => {
         .from('projects')
         .insert([
           {
-            name: projectName,
-            description: projectDescription || 'Projeto importado',
+            name: projectName.trim(),
+            description: projectDescription?.trim() || '',
             created_by: user.id
           }
         ])
