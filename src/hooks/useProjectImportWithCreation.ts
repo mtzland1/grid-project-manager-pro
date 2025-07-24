@@ -10,22 +10,40 @@ export const useProjectImportWithCreation = () => {
   const { toast } = useToast();
 
   const importAndCreateProject = async (file: File, projectName: string, projectDescription?: string) => {
+    console.log('useProjectImportWithCreation - importAndCreateProject chamado com:', {
+      fileName: file.name,
+      projectName,
+      projectDescription,
+      projectNameType: typeof projectName,
+      projectNameTrimmed: projectName.trim(),
+      projectNameLength: projectName.length
+    });
+
     setIsCreating(true);
     
     try {
-      // Validação rigorosa do nome do projeto
-      if (!projectName || typeof projectName !== 'string' || projectName.trim() === '') {
+      // Validação muito rigorosa do nome do projeto
+      if (!projectName || typeof projectName !== 'string') {
         throw new Error('Nome do projeto é obrigatório e deve ser uma string válida');
       }
 
       const trimmedName = projectName.trim();
+      if (trimmedName.length === 0) {
+        throw new Error('Nome do projeto não pode estar vazio');
+      }
+
+      if (trimmedName.length < 3) {
+        throw new Error('Nome do projeto deve ter pelo menos 3 caracteres');
+      }
+
       const trimmedDescription = projectDescription?.trim() || '';
 
-      console.log('Validação do nome do projeto:', {
-        original: projectName,
-        trimmed: trimmedName,
-        length: trimmedName.length,
-        type: typeof trimmedName
+      console.log('Validação final aprovada:', {
+        originalName: projectName,
+        trimmedName,
+        trimmedDescription,
+        nameLength: trimmedName.length,
+        nameType: typeof trimmedName
       });
 
       // Primeiro, importar os dados do arquivo
@@ -42,31 +60,32 @@ export const useProjectImportWithCreation = () => {
         throw new Error('Usuário não autenticado');
       }
       
-      console.log('Criando projeto com os dados:', {
+      // Criar dados do projeto com validação final
+      const projectData = {
         name: trimmedName,
         description: trimmedDescription,
         created_by: user.id
-      });
+      };
+
+      console.log('Criando projeto no banco com dados:', projectData);
       
-      // Criar o projeto no banco com os dados fornecidos pelo usuário
+      // Criar o projeto no banco
       const { data: project, error: projectError } = await supabase
         .from('projects')
-        .insert([
-          {
-            name: trimmedName,
-            description: trimmedDescription,
-            created_by: user.id
-          }
-        ])
+        .insert([projectData])
         .select()
         .single();
       
       if (projectError) {
-        console.error('Erro ao criar projeto:', projectError);
+        console.error('Erro ao criar projeto no banco:', projectError);
         throw new Error(`Erro ao criar projeto: ${projectError.message}`);
       }
+
+      if (!project) {
+        throw new Error('Projeto não foi criado - resposta vazia do banco');
+      }
       
-      console.log('Projeto criado com sucesso:', project);
+      console.log('Projeto criado com sucesso no banco:', project);
       
       // Agora inserir os itens do projeto
       const projectItems = projects.map(item => ({
@@ -84,7 +103,6 @@ export const useProjectImportWithCreation = () => {
         vlr_total_estimado: parseFloat(item.vlr_total_estimado || item.valor_total || item.total || '0') || 0,
         vlr_total_venda: parseFloat(item.vlr_total_venda || item.valor_venda || '0') || 0,
         distribuidor: item.distribuidor || item.supplier || item.fornecedor || '',
-        // Mapear campos adicionais se existirem
         reanalise_escopo: item.reanalise_escopo || '',
         prioridade_compra: item.prioridade_compra || '',
         reanalise_mo: item.reanalise_mo || '',
@@ -122,7 +140,7 @@ export const useProjectImportWithCreation = () => {
       return project;
       
     } catch (error) {
-      console.error('Erro completo:', error);
+      console.error('Erro completo na importação:', error);
       const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido';
       
       setError(errorMessage);

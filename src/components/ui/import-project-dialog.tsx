@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from './dialog';
 import { Button } from './button';
@@ -62,9 +61,14 @@ export const ImportProjectDialog: React.FC<ImportProjectDialogProps> = ({ onImpo
     }
   };
 
-  const validateProjectName = (name: string) => {
-    if (!name.trim()) {
+  const validateProjectName = (name: string): boolean => {
+    const trimmedName = name.trim();
+    if (!trimmedName || trimmedName.length === 0) {
       setNameError('Nome do projeto é obrigatório');
+      return false;
+    }
+    if (trimmedName.length < 3) {
+      setNameError('Nome do projeto deve ter pelo menos 3 caracteres');
       return false;
     }
     setNameError('');
@@ -72,18 +76,39 @@ export const ImportProjectDialog: React.FC<ImportProjectDialogProps> = ({ onImpo
   };
 
   const handleImport = async () => {
+    console.log('Iniciando importação com dados:', {
+      selectedFile: selectedFile?.name,
+      projectName: projectName,
+      projectNameTrimmed: projectName.trim(),
+      projectDescription: projectDescription
+    });
+
     if (!selectedFile) {
       alert('Por favor, selecione um arquivo');
       return;
     }
 
+    const trimmedName = projectName.trim();
+    
     if (!validateProjectName(projectName)) {
+      console.log('Validação do nome falhou:', {
+        original: projectName,
+        trimmed: trimmedName,
+        length: trimmedName.length
+      });
       return;
     }
 
+    console.log('Validação passou, chamando onImport com:', {
+      file: selectedFile.name,
+      name: trimmedName,
+      description: projectDescription.trim()
+    });
+
     setIsImporting(true);
     try {
-      await onImport(selectedFile, projectName.trim(), projectDescription.trim() || undefined);
+      await onImport(selectedFile, trimmedName, projectDescription.trim() || undefined);
+      // Reset form only after successful import
       setSelectedFile(null);
       setProjectName('');
       setProjectDescription('');
@@ -91,6 +116,7 @@ export const ImportProjectDialog: React.FC<ImportProjectDialogProps> = ({ onImpo
       setOpen(false);
     } catch (error) {
       console.error('Erro na importação:', error);
+      // Error is already handled by the parent component
     } finally {
       setIsImporting(false);
     }
@@ -115,6 +141,8 @@ export const ImportProjectDialog: React.FC<ImportProjectDialogProps> = ({ onImpo
       validateProjectName(value);
     }
   };
+
+  const isFormValid = selectedFile && projectName.trim().length >= 3;
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -180,10 +208,14 @@ export const ImportProjectDialog: React.FC<ImportProjectDialogProps> = ({ onImpo
                 placeholder="Digite o nome do projeto"
                 disabled={isImporting}
                 className={nameError ? 'border-red-500' : ''}
+                required
               />
               {nameError && (
                 <p className="text-sm text-red-500">{nameError}</p>
               )}
+              <p className="text-xs text-muted-foreground">
+                Mínimo 3 caracteres
+              </p>
             </div>
             
             <div className="space-y-2">
@@ -208,7 +240,7 @@ export const ImportProjectDialog: React.FC<ImportProjectDialogProps> = ({ onImpo
             </Button>
             <Button 
               onClick={handleImport} 
-              disabled={!selectedFile || !projectName.trim() || isImporting}
+              disabled={!isFormValid || isImporting}
             >
               {isImporting ? 'Importando...' : 'Importar'}
             </Button>
