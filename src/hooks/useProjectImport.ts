@@ -3,7 +3,7 @@ import { useState } from 'react';
 import * as XLSX from 'xlsx';
 
 interface ProjectData {
-  nome: string;
+  nome?: string;
   descricao?: string;
   status?: string;
   data_inicio?: string;
@@ -20,9 +20,11 @@ export const useProjectImport = () => {
     const lines = content.split('\n');
     const headers = lines[0].split(',').map(h => h.trim());
     
-    return lines.slice(1).filter(line => line.trim()).map(line => {
+    console.log('Headers encontrados no CSV:', headers);
+    
+    const projects = lines.slice(1).filter(line => line.trim()).map(line => {
       const values = line.split(',').map(v => v.trim());
-      const project: ProjectData = { nome: '' };
+      const project: ProjectData = {};
       
       headers.forEach((header, index) => {
         const normalizedHeader = header.toLowerCase().replace(/\s+/g, '_');
@@ -31,6 +33,9 @@ export const useProjectImport = () => {
       
       return project;
     });
+    
+    console.log('Projetos parseados do CSV:', projects);
+    return projects;
   };
 
   const parseXLSX = (file: File): Promise<ProjectData[]> => {
@@ -51,12 +56,14 @@ export const useProjectImport = () => {
           }
           
           const headers = (jsonData[0] as string[]).map(h => h?.toString().toLowerCase().replace(/\s+/g, '_') || '');
+          console.log('Headers encontrados no XLSX:', headers);
+          
           const projects: ProjectData[] = [];
           
           for (let i = 1; i < jsonData.length; i++) {
             const row = jsonData[i] as any[];
             if (row.some(cell => cell !== null && cell !== undefined && cell !== '')) {
-              const project: ProjectData = { nome: '' };
+              const project: ProjectData = {};
               headers.forEach((header, index) => {
                 project[header] = row[index]?.toString() || '';
               });
@@ -64,6 +71,7 @@ export const useProjectImport = () => {
             }
           }
           
+          console.log('Projetos parseados do XLSX:', projects);
           resolve(projects);
         } catch (error) {
           reject(error);
@@ -97,13 +105,30 @@ export const useProjectImport = () => {
         throw new Error('Formato de arquivo não suportado');
       }
       
-      // Validar projetos
+      console.log('Total de projetos antes da validação:', projects.length);
+      
+      // Validação mais flexível - aceitar projetos que tenham pelo menos um campo preenchido
       const validProjects = projects.filter(project => {
-        return project.nome && project.nome.trim().length > 0;
+        const hasContent = Object.values(project).some(value => 
+          value !== null && value !== undefined && value !== '' && value !== 0
+        );
+        
+        if (!hasContent) {
+          console.log('Projeto rejeitado (vazio):', project);
+          return false;
+        }
+        
+        return true;
       });
       
+      console.log('Total de projetos válidos:', validProjects.length);
+      
       if (validProjects.length === 0) {
-        throw new Error('Nenhum projeto válido encontrado no arquivo');
+        console.log('Todos os projetos foram rejeitados. Estrutura do arquivo:', {
+          totalLines: projects.length,
+          sampleProject: projects[0] || 'Nenhum projeto encontrado'
+        });
+        throw new Error('Nenhum projeto válido encontrado no arquivo. Verifique se o arquivo contém dados válidos.');
       }
       
       console.log(`${validProjects.length} projetos importados com sucesso`);

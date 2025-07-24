@@ -30,11 +30,26 @@ export const useProjectImportWithCreation = () => {
       // Usar o primeiro projeto como base para criar o projeto principal
       const mainProject = projects[0];
       
+      // Buscar um nome para o projeto de forma mais flexível
+      const projectName = mainProject.nome || 
+                         mainProject.name || 
+                         mainProject.descricao || 
+                         mainProject.description || 
+                         mainProject.projeto || 
+                         `Projeto Importado - ${new Date().toLocaleDateString()}`;
+      
+      const projectDescription = mainProject.descricao || 
+                               mainProject.description || 
+                               mainProject.observacoes || 
+                               'Projeto importado de arquivo';
+      
+      console.log('Criando projeto com nome:', projectName);
+      
       const { data: newProject, error: projectError } = await supabase
         .from('projects')
         .insert({
-          name: mainProject.nome || 'Projeto Importado',
-          description: mainProject.descricao || 'Projeto importado de arquivo',
+          name: projectName,
+          description: projectDescription,
           created_by: user.user.id
         })
         .select()
@@ -48,22 +63,22 @@ export const useProjectImportWithCreation = () => {
 
       // Mapear os dados importados para o formato da tabela project_items
       const projectItems = projects.map(project => {
-        // Extrair campos conhecidos da tabela
+        // Extrair campos conhecidos da tabela de forma mais flexível
         const knownFields = {
           project_id: newProject.id,
-          descricao: project.descricao || project.nome || '',
-          qtd: Number(project.qtd) || 0,
-          unidade: project.unidade || '',
-          mat_uni_pr: Number(project.mat_uni_pr) || 0,
-          desconto: Number(project.desconto) || 0,
-          cc_mat_uni: Number(project.cc_mat_uni) || 0,
-          cc_mat_total: Number(project.cc_mat_total) || 0,
-          cc_mo_uni: Number(project.cc_mo_uni) || 0,
-          cc_mo_total: Number(project.cc_mo_total) || 0,
+          descricao: project.descricao || project.description || project.nome || project.name || project.item || 'Item importado',
+          qtd: Number(project.qtd || project.quantidade || project.qty || project.quantity) || 1,
+          unidade: project.unidade || project.unit || project.un || 'un',
+          mat_uni_pr: Number(project.mat_uni_pr || project.preco_unitario || project.price || project.valor_unitario) || 0,
+          desconto: Number(project.desconto || project.discount) || 0,
+          cc_mat_uni: Number(project.cc_mat_uni || project.custo_material) || 0,
+          cc_mat_total: Number(project.cc_mat_total || project.custo_total_material) || 0,
+          cc_mo_uni: Number(project.cc_mo_uni || project.custo_mo) || 0,
+          cc_mo_total: Number(project.cc_mo_total || project.custo_total_mo) || 0,
           ipi: Number(project.ipi) || 0,
-          vlr_total_estimado: Number(project.vlr_total_estimado) || 0,
-          vlr_total_venda: Number(project.vlr_total_venda) || 0,
-          distribuidor: project.distribuidor || '',
+          vlr_total_estimado: Number(project.vlr_total_estimado || project.valor_estimado || project.total_estimado) || 0,
+          vlr_total_venda: Number(project.vlr_total_venda || project.valor_venda || project.total_venda) || 0,
+          distribuidor: project.distribuidor || project.fornecedor || project.supplier || '',
           reanalise_escopo: project.reanalise_escopo || null,
           prioridade_compra: project.prioridade_compra || null,
           reanalise_mo: project.reanalise_mo || null,
@@ -84,12 +99,15 @@ export const useProjectImportWithCreation = () => {
         
         // Remover campos conhecidos do dynamic_data para evitar duplicação
         const knownFieldKeys = [
-          'descricao', 'qtd', 'unidade', 'mat_uni_pr', 'desconto', 'cc_mat_uni',
-          'cc_mat_total', 'cc_mo_uni', 'cc_mo_total', 'ipi', 'vlr_total_estimado',
-          'vlr_total_venda', 'distribuidor', 'reanalise_escopo', 'prioridade_compra',
+          'descricao', 'description', 'nome', 'name', 'item', 'qtd', 'quantidade', 'qty', 'quantity',
+          'unidade', 'unit', 'un', 'mat_uni_pr', 'preco_unitario', 'price', 'valor_unitario',
+          'desconto', 'discount', 'cc_mat_uni', 'custo_material', 'cc_mat_total', 'custo_total_material',
+          'cc_mo_uni', 'custo_mo', 'cc_mo_total', 'custo_total_mo', 'ipi', 'vlr_total_estimado',
+          'valor_estimado', 'total_estimado', 'vlr_total_venda', 'valor_venda', 'total_venda',
+          'distribuidor', 'fornecedor', 'supplier', 'reanalise_escopo', 'prioridade_compra',
           'reanalise_mo', 'conferencia_estoque', 'a_comprar', 'comprado',
           'previsao_chegada', 'expedicao', 'cronograma_inicio', 'data_medicoes',
-          'data_conclusao', 'manutencao', 'status_global', 'nome'
+          'data_conclusao', 'manutencao', 'status_global'
         ];
 
         knownFieldKeys.forEach(key => {
