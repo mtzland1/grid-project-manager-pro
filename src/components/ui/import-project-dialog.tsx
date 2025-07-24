@@ -2,15 +2,19 @@
 import React, { useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from './dialog';
 import { Button } from './button';
+import { Input } from './input';
+import { Label } from './label';
 import { Upload, FileText, AlertCircle } from 'lucide-react';
 
 interface ImportProjectDialogProps {
-  onImport: (file: File) => Promise<void>;
+  onImport: (file: File, projectName: string, projectDescription?: string) => Promise<void>;
 }
 
 export const ImportProjectDialog: React.FC<ImportProjectDialogProps> = ({ onImport }) => {
   const [dragOver, setDragOver] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [projectName, setProjectName] = useState('');
+  const [projectDescription, setProjectDescription] = useState('');
   const [open, setOpen] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
 
@@ -52,11 +56,13 @@ export const ImportProjectDialog: React.FC<ImportProjectDialogProps> = ({ onImpo
   };
 
   const handleImport = async () => {
-    if (selectedFile && onImport) {
+    if (selectedFile && projectName.trim() && onImport) {
       setIsImporting(true);
       try {
-        await onImport(selectedFile);
+        await onImport(selectedFile, projectName.trim(), projectDescription.trim() || undefined);
         setSelectedFile(null);
+        setProjectName('');
+        setProjectDescription('');
         setOpen(false);
       } catch (error) {
         console.error('Erro na importação:', error);
@@ -71,6 +77,8 @@ export const ImportProjectDialog: React.FC<ImportProjectDialogProps> = ({ onImpo
       setOpen(newOpen);
       if (!newOpen) {
         setSelectedFile(null);
+        setProjectName('');
+        setProjectDescription('');
       }
     }
   };
@@ -83,7 +91,7 @@ export const ImportProjectDialog: React.FC<ImportProjectDialogProps> = ({ onImpo
           Importar Projeto
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Importar Projeto</DialogTitle>
         </DialogHeader>
@@ -96,7 +104,7 @@ export const ImportProjectDialog: React.FC<ImportProjectDialogProps> = ({ onImpo
           
           <div
             className={`
-              border-2 border-dashed rounded-lg p-8 text-center transition-colors relative
+              border-2 border-dashed rounded-lg p-6 text-center transition-colors relative
               ${dragOver ? 'border-primary bg-primary/10' : 'border-muted-foreground/25'}
               ${selectedFile ? 'border-green-500 bg-green-50' : ''}
             `}
@@ -106,7 +114,7 @@ export const ImportProjectDialog: React.FC<ImportProjectDialogProps> = ({ onImpo
           >
             {selectedFile ? (
               <div className="space-y-2">
-                <FileText className="h-12 w-12 mx-auto text-green-500" />
+                <FileText className="h-10 w-10 mx-auto text-green-500" />
                 <p className="font-medium">{selectedFile.name}</p>
                 <p className="text-sm text-muted-foreground">
                   {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
@@ -114,7 +122,7 @@ export const ImportProjectDialog: React.FC<ImportProjectDialogProps> = ({ onImpo
               </div>
             ) : (
               <div className="space-y-2">
-                <Upload className="h-12 w-12 mx-auto text-muted-foreground" />
+                <Upload className="h-10 w-10 mx-auto text-muted-foreground" />
                 <p className="font-medium">Arraste e solte seu arquivo aqui</p>
                 <p className="text-sm text-muted-foreground">ou clique para selecionar</p>
               </div>
@@ -129,6 +137,30 @@ export const ImportProjectDialog: React.FC<ImportProjectDialogProps> = ({ onImpo
             />
           </div>
           
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="project-name">Nome do Projeto *</Label>
+              <Input
+                id="project-name"
+                value={projectName}
+                onChange={(e) => setProjectName(e.target.value)}
+                placeholder="Digite o nome do projeto"
+                disabled={isImporting}
+              />
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="project-description">Descrição do Projeto</Label>
+              <Input
+                id="project-description"
+                value={projectDescription}
+                onChange={(e) => setProjectDescription(e.target.value)}
+                placeholder="Digite a descrição do projeto (opcional)"
+                disabled={isImporting}
+              />
+            </div>
+          </div>
+          
           <div className="flex justify-end gap-2">
             <Button 
               variant="outline" 
@@ -139,7 +171,7 @@ export const ImportProjectDialog: React.FC<ImportProjectDialogProps> = ({ onImpo
             </Button>
             <Button 
               onClick={handleImport} 
-              disabled={!selectedFile || isImporting}
+              disabled={!selectedFile || !projectName.trim() || isImporting}
             >
               {isImporting ? 'Importando...' : 'Importar'}
             </Button>

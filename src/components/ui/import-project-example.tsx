@@ -6,9 +6,9 @@ import { useProjectImportWithCreation } from '../../hooks/useProjectImportWithCr
 export const ImportProjectExample: React.FC = () => {
   const { importAndCreateProject, loading, error, setError } = useProjectImportWithCreation();
 
-  const handleImport = async (file: File) => {
+  const handleImport = async (file: File, projectName: string, projectDescription?: string) => {
     try {
-      const newProject = await importAndCreateProject(file);
+      const newProject = await importAndCreateProject(file, projectName, projectDescription);
       console.log('Projeto criado com sucesso:', newProject);
       
       // Opcional: redirecionar para o projeto criado ou atualizar a lista
