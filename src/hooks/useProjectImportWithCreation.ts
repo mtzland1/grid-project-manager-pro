@@ -35,9 +35,6 @@ export const useProjectImportWithCreation = () => {
         .insert({
           name: mainProject.nome || 'Projeto Importado',
           description: mainProject.descricao || 'Projeto importado de arquivo',
-          status: mainProject.status || 'planning',
-          start_date: mainProject.data_inicio || null,
-          end_date: mainProject.data_fim || null,
           created_by: user.user.id
         })
         .select()
@@ -49,11 +46,61 @@ export const useProjectImportWithCreation = () => {
 
       console.log('Projeto criado:', newProject);
 
-      // Inserir os itens do projeto
-      const projectItems = projects.map(project => ({
-        project_id: newProject.id,
-        dynamic_data: project
-      }));
+      // Mapear os dados importados para o formato da tabela project_items
+      const projectItems = projects.map(project => {
+        // Extrair campos conhecidos da tabela
+        const knownFields = {
+          project_id: newProject.id,
+          descricao: project.descricao || project.nome || '',
+          qtd: Number(project.qtd) || 0,
+          unidade: project.unidade || '',
+          mat_uni_pr: Number(project.mat_uni_pr) || 0,
+          desconto: Number(project.desconto) || 0,
+          cc_mat_uni: Number(project.cc_mat_uni) || 0,
+          cc_mat_total: Number(project.cc_mat_total) || 0,
+          cc_mo_uni: Number(project.cc_mo_uni) || 0,
+          cc_mo_total: Number(project.cc_mo_total) || 0,
+          ipi: Number(project.ipi) || 0,
+          vlr_total_estimado: Number(project.vlr_total_estimado) || 0,
+          vlr_total_venda: Number(project.vlr_total_venda) || 0,
+          distribuidor: project.distribuidor || '',
+          reanalise_escopo: project.reanalise_escopo || null,
+          prioridade_compra: project.prioridade_compra || null,
+          reanalise_mo: project.reanalise_mo || null,
+          conferencia_estoque: project.conferencia_estoque || null,
+          a_comprar: project.a_comprar || null,
+          comprado: project.comprado || null,
+          previsao_chegada: project.previsao_chegada || null,
+          expedicao: project.expedicao || null,
+          cronograma_inicio: project.cronograma_inicio || null,
+          data_medicoes: project.data_medicoes || null,
+          data_conclusao: project.data_conclusao || null,
+          manutencao: project.manutencao || null,
+          status_global: project.status_global || null
+        };
+
+        // Criar um objeto com campos extras para dynamic_data
+        const dynamicData = { ...project };
+        
+        // Remover campos conhecidos do dynamic_data para evitar duplicação
+        const knownFieldKeys = [
+          'descricao', 'qtd', 'unidade', 'mat_uni_pr', 'desconto', 'cc_mat_uni',
+          'cc_mat_total', 'cc_mo_uni', 'cc_mo_total', 'ipi', 'vlr_total_estimado',
+          'vlr_total_venda', 'distribuidor', 'reanalise_escopo', 'prioridade_compra',
+          'reanalise_mo', 'conferencia_estoque', 'a_comprar', 'comprado',
+          'previsao_chegada', 'expedicao', 'cronograma_inicio', 'data_medicoes',
+          'data_conclusao', 'manutencao', 'status_global', 'nome'
+        ];
+
+        knownFieldKeys.forEach(key => {
+          delete dynamicData[key];
+        });
+
+        return {
+          ...knownFields,
+          dynamic_data: dynamicData
+        };
+      });
 
       const { error: itemsError } = await supabase
         .from('project_items')
