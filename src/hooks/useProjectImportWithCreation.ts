@@ -9,6 +9,52 @@ export const useProjectImportWithCreation = () => {
   const { importProjects, loading, error, setError } = useProjectImport();
   const { toast } = useToast();
 
+  const extractProjectName = (project: any, fileName: string): string => {
+    console.log('Extracting project name from:', project);
+    
+    // Try multiple possible name fields in order of preference
+    const possibleNameFields = [
+      'nome', 'name', 'projeto', 'title', 'titulo',
+      'descricao', 'description', 'descrição', 'desc',
+      'item', 'codigo', 'code', 'id'
+    ];
+    
+    let projectName = '';
+    
+    for (const field of possibleNameFields) {
+      const value = project[field];
+      if (value && typeof value === 'string' && value.trim() !== '') {
+        projectName = value.trim();
+        break;
+      }
+    }
+    
+    // If still no name found, create one based on the file name
+    if (!projectName) {
+      const baseName = fileName.replace(/\.[^/.]+$/, "");
+      projectName = `Projeto Importado - ${baseName} - ${new Date().toLocaleDateString()}`;
+    }
+    
+    console.log('Final project name:', projectName);
+    return projectName;
+  };
+
+  const extractProjectDescription = (project: any): string => {
+    const possibleDescFields = [
+      'descricao', 'description', 'descrição',
+      'observacoes', 'obs', 'notes', 'comentarios'
+    ];
+    
+    for (const field of possibleDescFields) {
+      const value = project[field];
+      if (value && typeof value === 'string' && value.trim() !== '') {
+        return value.trim();
+      }
+    }
+    
+    return 'Projeto importado de arquivo';
+  };
+
   const importAndCreateProject = async (file: File) => {
     setIsCreating(true);
     
@@ -32,43 +78,14 @@ export const useProjectImportWithCreation = () => {
       // Usar o primeiro projeto como base para criar o projeto principal
       const mainProject = projects[0];
       
-      // Buscar um nome para o projeto de forma mais flexível
-      // Primeiro, tentar os campos mais comuns para nome
-      let projectName = mainProject.nome || 
-                       mainProject.name || 
-                       mainProject.projeto ||
-                       mainProject.title ||
-                       mainProject.titulo;
+      // Extract project name with robust fallback
+      const projectName = extractProjectName(mainProject, file.name);
+      const projectDescription = extractProjectDescription(mainProject);
       
-      // Se não encontrou nome, usar descrição como nome
-      if (!projectName) {
-        projectName = mainProject.descricao || 
-                     mainProject.description ||
-                     mainProject.descrição ||
-                     mainProject.desc;
-      }
-      
-      // Se ainda não encontrou, usar item como nome
-      if (!projectName) {
-        projectName = mainProject.item || 
-                     mainProject.codigo ||
-                     mainProject.code ||
-                     mainProject.id;
-      }
-      
-      // Como último recurso, criar um nome baseado no arquivo
+      // Ensure name is not empty
       if (!projectName || projectName.trim() === '') {
-        projectName = `Projeto Importado - ${file.name.replace(/\.[^/.]+$/, "")} - ${new Date().toLocaleDateString()}`;
+        throw new Error('Não foi possível extrair um nome válido para o projeto');
       }
-      
-      // Buscar descrição do projeto
-      const projectDescription = mainProject.descricao || 
-                               mainProject.description || 
-                               mainProject.descrição ||
-                               mainProject.observacoes ||
-                               mainProject.obs ||
-                               mainProject.notes ||
-                               'Projeto importado de arquivo';
       
       console.log('Criando projeto com nome:', projectName);
       console.log('Descrição do projeto:', projectDescription);
