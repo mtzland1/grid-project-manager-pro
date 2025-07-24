@@ -13,10 +13,20 @@ export const useProjectImportWithCreation = () => {
     setIsCreating(true);
     
     try {
-      // Validar se o nome do projeto foi fornecido
-      if (!projectName || projectName.trim() === '') {
-        throw new Error('Nome do projeto é obrigatório');
+      // Validação rigorosa do nome do projeto
+      if (!projectName || typeof projectName !== 'string' || projectName.trim() === '') {
+        throw new Error('Nome do projeto é obrigatório e deve ser uma string válida');
       }
+
+      const trimmedName = projectName.trim();
+      const trimmedDescription = projectDescription?.trim() || '';
+
+      console.log('Validação do nome do projeto:', {
+        original: projectName,
+        trimmed: trimmedName,
+        length: trimmedName.length,
+        type: typeof trimmedName
+      });
 
       // Primeiro, importar os dados do arquivo
       const projects = await importProjects(file);
@@ -32,16 +42,19 @@ export const useProjectImportWithCreation = () => {
         throw new Error('Usuário não autenticado');
       }
       
-      console.log('Criando projeto com nome:', projectName);
-      console.log('Descrição do projeto:', projectDescription);
+      console.log('Criando projeto com os dados:', {
+        name: trimmedName,
+        description: trimmedDescription,
+        created_by: user.id
+      });
       
       // Criar o projeto no banco com os dados fornecidos pelo usuário
       const { data: project, error: projectError } = await supabase
         .from('projects')
         .insert([
           {
-            name: projectName.trim(),
-            description: projectDescription?.trim() || '',
+            name: trimmedName,
+            description: trimmedDescription,
             created_by: user.id
           }
         ])
@@ -103,7 +116,7 @@ export const useProjectImportWithCreation = () => {
       
       toast({
         title: "Sucesso!",
-        description: `Projeto "${projectName}" criado com ${projectItems.length} itens`,
+        description: `Projeto "${trimmedName}" criado com ${projectItems.length} itens`,
       });
       
       return project;
@@ -111,6 +124,8 @@ export const useProjectImportWithCreation = () => {
     } catch (error) {
       console.error('Erro completo:', error);
       const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido';
+      
+      setError(errorMessage);
       
       toast({
         title: "Erro na importação",

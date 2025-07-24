@@ -8,6 +8,14 @@ export const ImportProjectExample: React.FC = () => {
 
   const handleImport = async (file: File, projectName: string, projectDescription?: string) => {
     try {
+      // Validação adicional para garantir que o nome não seja vazio
+      if (!projectName || projectName.trim() === '') {
+        throw new Error('Nome do projeto é obrigatório');
+      }
+      
+      console.log('Importando projeto com nome:', projectName);
+      console.log('Descrição do projeto:', projectDescription);
+      
       const newProject = await importAndCreateProject(file, projectName, projectDescription);
       console.log('Projeto criado com sucesso:', newProject);
       
@@ -15,6 +23,7 @@ export const ImportProjectExample: React.FC = () => {
       window.location.reload(); // Recarrega a página para mostrar o novo projeto
     } catch (error) {
       console.error('Erro na importação:', error);
+      // O erro já é tratado pelo hook, então não precisamos fazer nada aqui
     }
   };
 
