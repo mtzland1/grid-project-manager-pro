@@ -131,14 +131,18 @@ export const useProjectImportWithCreation = () => {
 
       // ETAPA 4: Preparação e Inserção dos Itens (LÓGICA ROBUSTA)
       const headerToKeyMap = new Map<string, string>();
-      projectData.headers.forEach(header => {
-        headerToKeyMap.set(header, generateColumnKey(header));
-      });
+      projectData.headers.forEach(header => {
+        if(header) headerToKeyMap.set(header, generateColumnKey(header));
+      });
 
-      const itemsToInsert = projectData.rows.map((row: any) => {
+      // LOG 1: Vamos ver o que está sendo mapeado
+      console.log('--- DADOS ANTES DA TRANSFORMAÇÃO ---', projectData.rows);
+
+      const itemsToInsert = projectData.rows.map((row: any) => {
         const dynamicData: { [key: string]: any } = {};
-        
+        
         for (const header of projectData.headers) {
+          if (!header) continue; // Pula cabeçalhos vazios
           const key = headerToKeyMap.get(header)!;
           dynamicData[key] = row[header] !== undefined ? row[header] : '';
         }
@@ -153,13 +157,19 @@ export const useProjectImportWithCreation = () => {
         };
       });
 
-      const { error: itemsError } = await supabase.from('project_items').insert(itemsToInsert);
-      if (itemsError) throw new Error(`Erro ao inserir itens: ${itemsError.message}`);
+      // LOG 2: Vamos ver o payload exato que seria enviado
+      console.log('--- PAYLOAD PARA O BANCO DE DADOS (itemsToInsert) ---', itemsToInsert);
+      
+      // ✅ TESTE: Tentar inserir apenas o PRIMEIRO item do lote.
+      console.log('--- TENTANDO INSERIR APENAS O PRIMEIRO ITEM ---', itemsToInsert[0]);
 
-      toast({
-        title: "Projeto importado com sucesso!",
-        description: `${itemsToInsert.length} itens foram importados para "${projectName}".`
-      });
+      const { error: itemsError } = await supabase.from('project_items').insert(itemsToInsert[0]); // MUDANÇA CRÍTICA AQUI
+
+      if (itemsError) {
+        // LOG 3: Se der erro, vamos ver a mensagem exata do Supabase
+        console.error('--- ERRO DETALHADO DO SUPABASE ---', itemsError);
+        throw new Error(`Erro ao inserir o primeiro item: ${itemsError.message}`);
+      }
 
       return newProject;
 
