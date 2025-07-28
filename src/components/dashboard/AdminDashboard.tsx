@@ -545,10 +545,9 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
   try {
     const importedData = await importProjects(file);
 
-    // PASSO 1: Use a chave correta para pegar o array
-    const importedProjectsArray = importedData[''];
-
-    if (!Array.isArray(importedProjectsArray)) {
+    // O formato retornado pelo useProjectImport é { headers: string[], rows: ProjectRow[] }
+    // onde ProjectRow é um objeto com as chaves correspondentes aos headers
+    if (!importedData || !importedData.rows || !Array.isArray(importedData.rows)) {
       console.error('O array de projetos não foi encontrado no objeto importado:', importedData);
       toast({
         title: "Erro de Formato",
@@ -558,20 +557,176 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
       return;
     }
     
-    // PASSO 2: Use as chaves corretas (os cabeçalhos do seu arquivo) no .map()
-    // Substitua 'Nome do Projeto' e 'Descricao Completa' pelos nomes exatos das suas colunas.
-    const projectsToInsert = importedProjectsArray.map(project => ({
-      name: project['Nome do Projeto'], 
-      description: project['Descricao Completa'] || '', 
-      created_by: user.id,
-    }));
+    // Criamos um único projeto com os dados importados
+    const { data: newProject, error: projectError } = await supabase
+      .from('projects')
+      .insert([{
+        name: `Projeto Importado ${new Date().toLocaleDateString()}`,
+        description: `Importado de ${file.name}`,
+        created_by: user.id,
+      }])
+      .select()
+      .single();
 
-    // ... o resto da sua função continua igual ...
+    if (projectError) {
+      throw new Error(`Erro ao criar projeto: ${projectError.message}`);
+    }
 
-    toast({
-      title: "Projetos importados com sucesso!",
-      description: `${importedProjectsArray.length} projetos foram importados e salvos.`,
+    // Verificamos se já existem colunas para este projeto (não deveria, mas por segurança)
+    const { data: existingColumns, error: columnsSelectError } = await supabase
+      .from('project_columns')
+      .select('column_key')
+      .eq('project_id', newProject.id);
+
+    if (columnsSelectError) {
+      throw new Error(`Erro ao verificar colunas existentes: ${columnsSelectError.message}`);
+    }
+
+    // Criamos um Set com as chaves de colunas existentes para verificação rápida
+    const existingColumnKeys = new Set(existingColumns?.map(c => c.column_key) || []);
+
+    // Função para mapear tipo de dado com base no nome do header
+    const mapColumnType = (headerName: string): string => {
+      const upperHeader = headerName.toUpperCase();
+      if (upperHeader.includes('PREÇO') || upperHeader.includes('VALOR') || 
+          upperHeader.includes('TOTAL') || upperHeader.includes('UNITARIO') || 
+          upperHeader.includes('CC') || upperHeader.includes('VLR') || 
+          upperHeader.includes('MINIIMO') || upperHeader.includes('MINIMO') || 
+          upperHeader.includes('PV')) {
+        return 'currency';
+      }
+      if (upperHeader.includes('QTD') || upperHeader.includes('QUANTIDADE')) {
+        return 'number';
+      }
+      if (upperHeader.includes('DATA') || upperHeader.includes('DATE')) {
+        return 'date';
+      }
+      if (upperHeader.includes('DESCONTO') || upperHeader.includes('PERCENTUAL') || 
+          upperHeader.includes('PORCENTAGEM') || upperHeader.includes('IPI')) {
+        return 'percentage';
+      }
+      return 'text';
+    };
+
+    // Criamos as colunas do projeto baseadas nos headers do arquivo, evitando duplicatas
+    // Usamos a mesma função de normalização de chaves que está no hook useProjectImportWithCreation
+    const generateColumnKey = (label: string): string => {
+      if (!label) return '';
+      return label
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9_]/g, '_')
+        .replace(/_+/g, '_')
+        .replace(/^_|_$/g, '');
+    };
+    
+    const columnsToInsert = importedData.headers
+      .map((header, index) => {
+        const columnKey = generateColumnKey(header);
+        // Garantir que nunca tenhamos uma chave vazia
+        if (!columnKey) {
+          console.warn(`Header vazio ou inválido encontrado: "${header}". Será ignorado.`);
+          return null;
+        }
+        return {
+          project_id: newProject.id,
+          column_key: columnKey,
+          column_label: header,
+          column_type: mapColumnType(header),
+          column_width: '150px',
+          column_order: index,
+          is_system_column: false,
+          is_calculated: false
+        };
+      })
+      // Filtramos para remover colunas nulas e que já existem
+      .filter(col => col !== null && !existingColumnKeys.has(col.column_key));
+
+    // Só tentamos inserir se houver colunas novas
+    if (columnsToInsert.length > 0) {
+      const { error: columnsError } = await supabase
+        .from('project_columns')
+        .insert(columnsToInsert);
+
+      if (columnsError) {
+        throw new Error(`Erro ao criar colunas: ${columnsError.message}`);
+      }
+    }
+
+    // Inserimos os itens do projeto
+    // Preparamos o mapeamento de cabeçalhos para chaves de coluna
+    // Usamos a mesma função generateColumnKey para garantir consistência
+    const headerToKeyMap = new Map<string, string>();
+    importedData.headers.forEach(header => {
+      const key = generateColumnKey(header);
+      // Só adicionamos ao mapa se a chave não for vazia
+      if (key) {
+        headerToKeyMap.set(header, key);
+      } else {
+        console.warn(`Header vazio ou inválido ignorado no mapeamento: "${header}"`);
+      }
     });
+
+    const itemsToInsert = importedData.rows.map(row => {
+      const dynamicData = {};
+      importedData.headers.forEach(header => {
+        const key = headerToKeyMap.get(header);
+        // Verificamos se a chave existe e não é vazia antes de adicionar ao dynamicData
+        if (key && key.trim() !== '') {
+          dynamicData[key] = row[header] !== undefined ? row[header] : '';
+        }
+      });
+
+      return {
+        project_id: newProject.id,
+        descricao: row['DESCRIÇÃO'] || row['DESCRICAO'] || '',
+        qtd: parseFloat(row['QTD'] || '0'),
+        unidade: row['UNIDADE'] || '',
+        dynamic_data: dynamicData
+      };
+    });
+
+    // Inserimos os itens do projeto em lotes para evitar limites de tamanho de requisição
+    const batchSize = 500;
+    let successCount = 0;
+    let hasErrors = false;
+
+    for (let i = 0; i < itemsToInsert.length; i += batchSize) {
+      const batch = itemsToInsert.slice(i, i + batchSize);
+      const { error: itemsError } = await supabase
+        .from('project_items')
+        .insert(batch);
+
+      if (itemsError) {
+        console.error(`Erro ao inserir lote ${i / batchSize + 1}:`, itemsError);
+        hasErrors = true;
+      } else {
+        successCount += batch.length;
+      }
+    }
+
+    if (hasErrors) {
+      if (successCount > 0) {
+        toast({
+          title: "Importação Parcial",
+          description: `${successCount} de ${itemsToInsert.length} itens foram importados. Alguns itens não puderam ser importados.`,
+          variant: "default",
+        });
+      } else {
+        toast({
+          title: "Erro ao Importar",
+          description: "Ocorreu um erro ao importar os itens do projeto.",
+          variant: "destructive",
+        });
+        return;
+      }
+    } else {
+      toast({
+        title: "Projeto importado com sucesso!",
+        description: `${successCount} itens foram importados para o novo projeto.`,
+      });
+    }
 
     fetchProjects();
   } catch (error) {

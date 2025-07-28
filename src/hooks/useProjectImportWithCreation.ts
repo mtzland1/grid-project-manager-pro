@@ -106,12 +106,21 @@ export const useProjectImportWithCreation = () => {
       const maxOrder = existingColumns.length > 0 ? Math.max(...existingColumns.map(c => c.column_order)) : 0;
 
       const columnsToInsert = projectData.headers
-        .map((header, index) => ({
-          key: generateColumnKey(header),
-          label: header,
-          order: maxOrder + index + 1 // Garante ordem correta
-        }))
-        .filter(col => !existingColumnKeys.has(col.key)); // Filtra para inserir apenas as NOVAS
+        .map((header, index) => {
+          const key = generateColumnKey(header);
+          // Garantir que nunca tenhamos uma chave vazia
+          if (!key) {
+            console.warn(`Header vazio ou inválido encontrado: "${header}". Será ignorado.`);
+            return null;
+          }
+          return {
+            key,
+            label: header,
+            order: maxOrder + index + 1 // Garante ordem correta
+          };
+        })
+        // Filtramos para remover colunas nulas e que já existem
+        .filter(col => col !== null && !existingColumnKeys.has(col.key)); // Filtra para inserir apenas as NOVAS
 
       if (columnsToInsert.length > 0) {
         const { error: columnsInsertError } = await supabase
@@ -132,16 +141,25 @@ export const useProjectImportWithCreation = () => {
       // ETAPA 4: Preparação e Inserção dos Itens (LÓGICA ROBUSTA)
       const headerToKeyMap = new Map<string, string>();
       projectData.headers.forEach(header => {
-        headerToKeyMap.set(header, generateColumnKey(header));
+        const key = generateColumnKey(header);
+        // Só adicionamos ao mapa se a chave não for vazia
+        if (key) {
+          headerToKeyMap.set(header, key);
+        } else {
+          console.warn(`Header vazio ou inválido ignorado no mapeamento: "${header}"`);
+        }
       });
 
       const itemsToInsert = projectData.rows.map((row: any) => {
-        const dynamicData: { [key: string]: any } = {};
-        
-        for (const header of projectData.headers) {
-          const key = headerToKeyMap.get(header)!;
-          dynamicData[key] = row[header] !== undefined ? row[header] : '';
-        }
+        const dynamicData: { [key: string]: any } = {};
+        
+        for (const header of projectData.headers) {
+          const key = headerToKeyMap.get(header);
+          // Verificamos se a chave existe e não é vazia antes de adicionar ao dynamicData
+          if (key && key.trim() !== '') {
+            dynamicData[key] = row[header] !== undefined ? row[header] : '';
+          }
+        }
 
         return {
           project_id: newProject.id,
