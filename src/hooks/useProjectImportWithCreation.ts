@@ -70,6 +70,9 @@ export const useProjectImportWithCreation = () => {
       // Fazer o parse do arquivo - retorna um único objeto com headers e rows
       console.log('Iniciando parse do arquivo...');
       const projectData: ProjectData = await importProjects(file);
+
+      const importedProjectsArray = projectData.rows;
+
       
       if (!projectData || projectData.rows.length === 0) {
         throw new Error('Nenhum dado válido encontrado no arquivo');
