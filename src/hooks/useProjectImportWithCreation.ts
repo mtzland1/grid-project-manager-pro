@@ -77,9 +77,9 @@ export const useProjectImportWithCreation = () => {
     try {
       // ETAPA 1: Parse do arquivo (seu código aqui já está bom)
       const projectData = await importProjects(file);
-      if (!projectData || projectData.rows.length === 0) {
-        throw new Error('Nenhuma linha de dados válida foi encontrada no arquivo.');
-      }
+      if (!projectData || !projectData[''] || projectData[''].length === 0) {
+        throw new Error('Nenhuma linha de dados válida foi encontrada no arquivo.');
+      }
 
       // ETAPA 2: Criação do projeto
       const { data: { user } } = await supabase.auth.getUser();
@@ -135,27 +135,28 @@ export const useProjectImportWithCreation = () => {
         headerToKeyMap.set(header, generateColumnKey(header));
       });
 
-      const itemsToInsert = projectData.rows.map((row) => {
-        const dynamicData: { [key: string]: any } = {};
-        
-        for (const header of projectData.headers) {
-          const key = headerToKeyMap.get(header)!;
-          dynamicData[key] = row[header] || '';
-        }
+      const itemsToInsert = projectData[''].map((row: any) => { // 1. Use a chave correta ('') e nomeie o parâmetro da linha (row)
+        const dynamicData: { [key: string]: any } = {};
+       
+        for (const header of projectData.headers) {
+          const key = headerToKeyMap.get(header)!;
+          // 2. Acesse o valor da célula usando row[header]
+          dynamicData[key] = row[header] !== undefined ? row[header] : '';
+        }
 
-        return {
-          project_id: newProject.id,
-          // Mapeamento explícito para colunas principais, usando a função de parse segura
-          descricao: row['DESCRIÇÃO'] || row['DESCRICAO'] || '',
-          qtd: parseCurrency(row['QTD']),
-          unidade: row['UNIDADE'] || '',
-          mat_uni_pr: parseCurrency(row['MINIIMO UNITARIO'] || row['MINIMO UNITARIO']),
-          dynamic_data: dynamicData
-        };
-      });
+        return {
+          project_id: newProject.id,
+          // 3. Mapeie as colunas principais acessando as propriedades do objeto 'row'
+          descricao: row['DESCRIÇÃO'] || row['DESCRICAO'] || '',
+          qtd: parseCurrency(row['QTD']),
+          unidade: row['UNIDADE'] || '',
+          mat_uni_pr: parseCurrency(row['MINIIMO UNITARIO'] || row['MINIMO UNITARIO']),
+          dynamic_data: dynamicData
+        };
+      });
 
-      const { error: itemsError } = await supabase.from('project_items').insert(itemsToInsert);
-      if (itemsError) throw new Error(`Erro ao inserir itens: ${itemsError.message}`);
+      const { error: itemsError } = await supabase.from('project_items').insert(itemsToInsert);
+      if (itemsError) throw new Error(`Erro ao inserir itens: ${itemsError.message}`);
 
       toast({
         title: "Projeto importado com sucesso!",
