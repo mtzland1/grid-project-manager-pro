@@ -101,18 +101,20 @@ export const useProjectImport = () => {
   };
 
   const parseXLSX = async (file: File): Promise<ProjectData> => {
-    const data = await readFileAs(file, 'arrayBuffer');
-    const workbook = XLSX.read(data, { type: 'array' });
-    const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-
-    const jsonData = XLSX.utils.sheet_to_json<any[]>(worksheet, { header: 1, defval: '', blankrows: false });
-    if (jsonData.length < 2) throw new Error('XLSX precisa de cabeçalho e pelo menos uma linha de dados.');
-    
-    const headers = jsonData[0].map(h => String(h).trim()).filter(h => h !== '');
-    const allRowsData = jsonData.slice(1);
-    const rows = processAndFilterRows(allRowsData, headers);
-
-    return { headers, rows };
+    const data = await readFileAs(file, 'arrayBuffer');
+    const workbook = XLSX.read(data, { type: 'array' });
+    const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+  
+    const jsonData = XLSX.utils.sheet_to_json<any[]>(worksheet, { header: 1, defval: '', blankrows: false });
+    if (jsonData.length < 2) throw new Error('XLSX precisa de cabeçalho e pelo menos uma linha de dados.');
+    
+    // ✅ CORREÇÃO: Remova o .filter() daqui para manter os índices alinhados.
+    const headers = jsonData[0].map(h => String(h).trim());
+  
+    const allRowsData = jsonData.slice(1);
+    const rows = processAndFilterRows(allRowsData, headers);
+  
+    return { headers, rows };
   };
 
   const importProjects = async (file: File): Promise<ProjectData> => {
