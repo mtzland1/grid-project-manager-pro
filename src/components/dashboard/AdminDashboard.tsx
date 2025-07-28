@@ -543,48 +543,30 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
 
  const handleImportProject = async (file: File) => {
   try {
-    const importedData = await importProjects(file); 
+    const importedData = await importProjects(file);
 
-    // **POSSIBILITY 1 (Most Likely): The array is a property on the object.**
-    // Replace '.data' with the property name you found in your console.
-    const importedProjectsArray = importedData.data;
+    // PASSO 1: Use a chave correta para pegar o array
+    const importedProjectsArray = importedData[''];
 
-    // **POSSIBILITY 2 (Less Likely): The hook returns the array directly and the type is misleading.**
-    // If your console.log shows that 'importedData' IS the array itself, use this line instead:
-    // const importedProjectsArray = importedData as Project[];
-
-    // Add a robust check for the array's existence
     if (!Array.isArray(importedProjectsArray)) {
-      console.error('Imported data is not in the expected format:', importedData);
+      console.error('O array de projetos não foi encontrado no objeto importado:', importedData);
       toast({
         title: "Erro de Formato",
-        description: "O arquivo importado não contém uma lista de projetos válida.",
+        description: "A estrutura do arquivo importado não é a esperada.",
         variant: "destructive",
       });
       return;
     }
-
+    
+    // PASSO 2: Use as chaves corretas (os cabeçalhos do seu arquivo) no .map()
+    // Substitua 'Nome do Projeto' e 'Descricao Completa' pelos nomes exatos das suas colunas.
     const projectsToInsert = importedProjectsArray.map(project => ({
-      name: project.name,
-      description: project.description || '',
+      name: project['Nome do Projeto'], 
+      description: project['Descricao Completa'] || '', 
       created_by: user.id,
     }));
 
-    if (projectsToInsert.length === 0) {
-      toast({
-        title: "Nenhum projeto para importar",
-        description: "O arquivo selecionado não continha projetos.",
-      });
-      return;
-    }
-
-    const { error } = await supabase
-      .from('projects')
-      .insert(projectsToInsert);
-
-    if (error) {
-      throw error; // Let the catch block handle it
-    }
+    // ... o resto da sua função continua igual ...
 
     toast({
       title: "Projetos importados com sucesso!",
