@@ -542,79 +542,74 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
   };
 
   const handleImportProject = async (file: File) => {
-    try {
-      const projectData = await importProjects(file);
-      console.log('Dados do projeto importados:', projectData);
-      
-      // Extract project information from the imported data
-      // For now, we'll create a single project with the file name
-      const projectName = file.name.replace(/\.(csv|xlsx)$/i, '');
-      
-      const { data, error } = await supabase
-        .from('projects')
-        .insert([{
-          name: projectName,
-          description: `Projeto importado de ${file.name} com ${projectData.rows.length} itens`,
-          created_by: user.id,
-        }])
-        .select()
-        .single();
+  try {
+    // 1. Store the returned object from the hook.
+    //    It's renamed to avoid confusion with the component's 'projects' state.
+    const importedData = await importProjects(file); 
 
-      if (error) {
-        console.error('Erro ao salvar projeto:', error);
-        toast({
-          title: "Erro ao salvar projeto",
-          description: error.message,
-          variant: "destructive",
-        });
-        return;
-      }
-
-      // Now we can save the project items to the database
-      if (projectData.rows.length > 0) {
-        const itemsToInsert = projectData.rows.map(row => ({
-          project_id: data.id,
-          descricao: row.ITEM || row.item || row.Item || 'Item sem descrição',
-          qtd: parseFloat(row.QTD || row.qtd || row.Qtd || '0') || 0,
-          unidade: row.UNIDADE || row.unidade || row.Unidade || 'UN',
-          // Map other fields as needed based on your data structure
-        }));
-
-        const { error: itemsError } = await supabase
-          .from('project_items')
-          .insert(itemsToInsert);
-
-        if (itemsError) {
-          console.error('Erro ao salvar itens do projeto:', itemsError);
-          toast({
-            title: "Projeto criado, mas houve erro ao importar itens",
-            description: itemsError.message,
-            variant: "destructive",
-          });
-        } else {
-          toast({
-            title: "Projeto importado com sucesso!",
-            description: `Projeto "${projectName}" criado com ${projectData.rows.length} itens importados`,
-          });
-        }
-      } else {
-        toast({
-          title: "Projeto criado sem itens",
-          description: `Projeto "${projectName}" foi criado, mas nenhum item foi encontrado no arquivo`,
-        });
-      }
-
-      // Recarregar a lista de projetos
-      fetchProjects();
-    } catch (error) {
-      console.error('Erro na importação:', error);
+    // 2. Add a check to ensure the returned data and the nested projects array exist.
+    if (!importedData || !Array.isArray(importedData.projects)) {
+      console.error('Imported data is not in the expected format:', importedData);
       toast({
-        title: "Erro na importação",
-        description: "Não foi possível importar o projeto",
+        title: "Erro de Formato",
+        description: "O arquivo importado não contém uma lista de projetos válida.",
         variant: "destructive",
       });
+      return;
     }
-  };
+
+    // 3. Access the array using its property name (assumed to be 'projects').
+    const importedProjectsArray = importedData.projects;
+
+    // Now, use the correct array variable for '.map()'
+    const projectsToInsert = importedProjectsArray.map(project => ({
+      name: project.name,
+      description: project.description || '',
+      created_by: user.id,
+    }));
+
+    if (projectsToInsert.length === 0) {
+      toast({
+        title: "Nenhum projeto para importar",
+        description: "O arquivo selecionado não continha projetos para adicionar.",
+      });
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from('projects')
+      .insert(projectsToInsert)
+      .select();
+
+    if (error) {
+      console.error('Erro ao salvar projetos:', error);
+      toast({
+        title: "Erro ao salvar projetos",
+        description: error.message,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    toast({
+      title: "Projetos importados com sucesso!",
+      // 4. Use the correct array variable for '.length'
+      description: `${importedProjectsArray.length} projetos foram importados e salvos`,
+    });
+
+    // Recarregar a lista de projetos
+    fetchProjects();
+  } catch (error) {
+    console.error('Erro na importação:', error);
+    // The useProjectImport hook might throw an error, which should be caught here.
+    const errorMessage = error instanceof Error ? error.message : "Não foi possível importar os projetos";
+    toast({
+      title: "Erro na importação",
+      description: errorMessage,
+      variant: "destructive",
+    });
+  }
+};
 
   // Now handle conditional rendering AFTER all hooks have been called
   if (selectedProject && showPermissions) {
