@@ -108,7 +108,7 @@ export const useProjectImport = () => {
     const jsonData = XLSX.utils.sheet_to_json<any[]>(worksheet, { header: 1, defval: '', blankrows: false });
     if (jsonData.length < 2) throw new Error('XLSX precisa de cabeçalho e pelo menos uma linha de dados.');
     
-    const headers = jsonData[0].map(h => String(h).trim()).filter(h => h !== '');
+    const headers = jsonData[0].map(h => String(h).trim());
     const allRowsData = jsonData.slice(1);
     const rows = processAndFilterRows(allRowsData, headers);
 
