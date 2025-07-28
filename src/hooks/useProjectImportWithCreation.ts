@@ -4,88 +4,100 @@ import { supabase } from '@/integrations/supabase/client';
 import { useProjectImport } from './useProjectImport';
 import { useToast } from '@/components/ui/use-toast';
 
-interface ProjectRow {
+interface ProjectColumn {
+  column_key: string;
+  column_label: string;
+  column_type: string;
+  column_width: string;
+  column_order: number;
+  is_system_column: boolean;
+  is_calculated: boolean;
+}
+
+interface ProjectItem {
   [key: string]: any;
 }
 
-interface ProjectData {
-  headers: string[];
-  rows: ProjectRow[];
+interface Project {
+  id: string;
+  name: string;
+  description?: string;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+  archived: boolean;
 }
 
 export const useProjectImportWithCreation = () => {
+  const { importProjects, loading: importLoading, error: importError, setError } = useProjectImport();
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const { importProjects } = useProjectImport();
+  const [error, setLocalError] = useState<string | null>(null);
   const { toast } = useToast();
 
-  const normalizeColumnKey = (header: string): string => {
-    return header
+  const mapColumnType = (headerName: string): string => {
+    const upperHeader = headerName.toUpperCase();
+    
+    if (upperHeader.includes('PREÇO') || upperHeader.includes('VALOR') || 
+        upperHeader.includes('TOTAL') || upperHeader.includes('UNITARIO') ||
+        upperHeader.includes('CC') || upperHeader.includes('VLR') ||
+        upperHeader.includes('MINIIMO') || upperHeader.includes('MINIMO') ||
+        upperHeader.includes('PV')) {
+      return 'currency';
+    }
+    
+    if (upperHeader.includes('QTD') || upperHeader.includes('QUANTIDADE')) {
+      return 'number';
+    }
+    
+    if (upperHeader.includes('DATA') || upperHeader.includes('PREVISAO')) {
+      return 'date';
+    }
+    
+    if (upperHeader.includes('%') || upperHeader.includes('PERCENT')) {
+      return 'percentage';
+    }
+    
+    return 'text';
+  };
+
+  const generateColumnKey = (label: string): string => {
+    return label
       .toLowerCase()
-      .trim()
-      .replace(/\s+/g, '_')
-      .replace(/[^a-z0-9_]/g, '');
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^_|_$/g, '');
   };
 
   const importAndCreateProject = async (
     file: File, 
     projectName: string, 
     projectDescription?: string
-  ) => {
-    console.log('=== INICIANDO IMPORTAÇÃO COM CRIAÇÃO ===');
-    console.log('Arquivo:', file.name);
-    console.log('Nome do projeto:', projectName);
-    console.log('Descrição:', projectDescription);
-
+  ): Promise<Project> => {
     setLoading(true);
-    setError(null);
+    setLocalError(null);
 
     try {
-      // Validação do nome do projeto
-      if (!projectName || typeof projectName !== 'string') {
-        throw new Error('Nome do projeto é obrigatório');
-      }
-
-      const trimmedName = projectName.trim();
-      if (trimmedName.length < 3) {
-        throw new Error('Nome do projeto deve ter pelo menos 3 caracteres');
-      }
-
-      // Verificar se já existe um projeto com esse nome
-      const { data: existingProject, error: checkError } = await supabase
-        .from('projects')
-        .select('id')
-        .eq('name', trimmedName)
-        .maybeSingle();
-
-      if (checkError) {
-        console.error('Erro ao verificar projeto existente:', checkError);
-        throw new Error('Erro ao verificar projetos existentes');
-      }
-
-      if (existingProject) {
-        throw new Error(`Já existe um projeto com o nome "${trimmedName}"`);
-      }
-
-      // Fazer o parse do arquivo - retorna um único objeto com headers e rows
-      console.log('Iniciando parse do arquivo...');
-      const projectData: ProjectData = await importProjects(file);
-
-      const importedProjectsArray = projectData.rows;
-
+      console.log('=== INICIANDO IMPORTAÇÃO E CRIAÇÃO DO PROJETO ===');
       
-      if (!projectData || projectData.rows.length === 0) {
-        throw new Error('Nenhum dado válido encontrado no arquivo');
+      // 1. Importar dados do arquivo
+      const projectData = await importProjects(file);
+      console.log('Dados importados:', projectData);
+
+      if (!projectData.headers || !projectData.rows) {
+        throw new Error('Dados do arquivo inválidos: headers ou rows ausentes');
       }
 
-      console.log('Dados parseados - projeto único com', projectData.rows.length, 'linhas');
+      if (projectData.rows.length === 0) {
+        throw new Error('Nenhuma linha válida encontrada no arquivo');
+      }
 
-      // Criar UM ÚNICO projeto
-      console.log('Criando projeto...');
+      // 2. Criar o projeto no banco
       const { data: newProject, error: projectError } = await supabase
         .from('projects')
         .insert({
-          name: trimmedName,
+          name: projectName,
           description: projectDescription || '',
           created_by: (await supabase.auth.getUser()).data.user?.id
         })
@@ -94,135 +106,112 @@ export const useProjectImportWithCreation = () => {
 
       if (projectError) {
         console.error('Erro ao criar projeto:', projectError);
-        throw new Error('Erro ao criar projeto: ' + projectError.message);
+        throw new Error(`Erro ao criar projeto: ${projectError.message}`);
       }
 
-      console.log('Projeto criado com sucesso:', newProject.id);
+      console.log('Projeto criado:', newProject);
 
-      // Esperar um pouco para garantir que as colunas padrão foram criadas
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      // Buscar colunas existentes do projeto
-      const { data: existingColumns, error: columnsError } = await supabase
-        .from('project_columns')
-        .select('column_key', 'column_order')
-        .eq('project_id', newProject.id);
-
-      if (columnsError) {
-        console.error('Erro ao buscar colunas:', columnsError);
-        throw new Error('Erro ao buscar colunas do projeto');
-      }
-
-      const existingColumnKeys = new Set(existingColumns?.map(col => col.column_key) || []);
-      console.log('Colunas existentes:', existingColumnKeys);
-
-      // Identificar colunas personalizadas dos dados importados
-      const customColumns = projectData.headers.filter(header => {
-        const normalizedKey = normalizeColumnKey(header);
-        return !existingColumnKeys.has(normalizedKey);
-      });
-
-      console.log('Colunas personalizadas encontradas:', customColumns);
-
-      // Criar colunas personalizadas
-      if (customColumns.length > 0) {
-        const maxOrder = existingColumns && existingColumns.length > 0
-          ? Math.max(...existingColumns.map(col => col.column_order || 0))
-          : 0;
-        
-        const customColumnInserts = customColumns.map((header, index) => ({
+      // 3. Criar as colunas baseadas nos headers
+      const columnsToInsert: Omit<ProjectColumn, 'id' | 'created_at' | 'updated_at'>[] = 
+        projectData.headers.map((header, index) => ({
           project_id: newProject.id,
-          column_key: normalizeColumnKey(header),
+          column_key: generateColumnKey(header),
           column_label: header,
-          column_type: 'text',
+          column_type: mapColumnType(header),
           column_width: '120px',
-          column_order: maxOrder + index + 1,
+          column_order: index + 1,
           is_system_column: false,
           is_calculated: false
         }));
 
-        const { error: customColumnsError } = await supabase
-          .from('project_columns')
-          .insert(customColumnInserts);
+      console.log('Colunas a inserir:', columnsToInsert);
 
-        if (customColumnsError) {
-          console.error('Erro ao criar colunas personalizadas:', customColumnsError);
-          throw new Error('Erro ao criar colunas personalizadas');
-        }
+      // Buscar colunas existentes para obter a ordem correta
+      const { data: existingColumns, error: columnsSelectError } = await supabase
+        .from('project_columns')
+        .select('column_key')
+        .eq('project_id', newProject.id);
 
-        console.log('Colunas personalizadas criadas:', customColumnInserts.length);
+      if (columnsSelectError) {
+        console.error('Erro ao buscar colunas existentes:', columnsSelectError);
+        throw new Error(`Erro ao buscar colunas: ${columnsSelectError.message}`);
       }
 
-      // Preparar dados para inserção - cada ROW vira um ITEM do projeto
-      console.log('Preparando dados para inserção...');
-      const itemsToInsert = projectData.rows.map(row => {
-        const item: any = {
-          project_id: newProject.id,
-          dynamic_data: {}
-        };
+      // Deletar colunas padrão se existirem
+      if (existingColumns && existingColumns.length > 0) {
+        const { error: deleteError } = await supabase
+          .from('project_columns')
+          .delete()
+          .eq('project_id', newProject.id);
 
-        // Processar cada campo da row
-        projectData.headers.forEach(header => {
-          const value = row[header];
-          const normalizedKey = normalizeColumnKey(header);
-          
-          if (existingColumnKeys.has(normalizedKey)) {
-            // Campo existe na tabela - mapear diretamente
-            item[normalizedKey] = value || '';
-          } else {
-            // Campo personalizado - salvar no dynamic_data
-            item.dynamic_data[normalizedKey] = value || '';
-          }
+        if (deleteError) {
+          console.error('Erro ao deletar colunas padrão:', deleteError);
+          throw new Error(`Erro ao deletar colunas padrão: ${deleteError.message}`);
+        }
+      }
+
+      // Inserir as novas colunas
+      const { error: columnsError } = await supabase
+        .from('project_columns')
+        .insert(columnsToInsert);
+
+      if (columnsError) {
+        console.error('Erro ao criar colunas:', columnsError);
+        throw new Error(`Erro ao criar colunas: ${columnsError.message}`);
+      }
+
+      // 4. Preparar e inserir os itens do projeto
+      const itemsToInsert = projectData.rows.map((row: ProjectItem) => {
+        const dynamicData: { [key: string]: any } = {};
+        
+        // Mapear todos os campos do row para dynamic_data
+        projectData.headers.forEach((header) => {
+          const columnKey = generateColumnKey(header);
+          dynamicData[columnKey] = row[header] || '';
         });
 
-        return item;
+        return {
+          project_id: newProject.id,
+          descricao: row['DESCRIÇÃO'] || row['DESCRICAO'] || '',
+          qtd: parseFloat(row['QTD'] || '0') || 0,
+          unidade: row['UNIDADE'] || '',
+          mat_uni_pr: parseFloat(row['MINIIMO UNITARIO'] || row['MINIMO UNITARIO'] || '0') || 0,
+          dynamic_data: dynamicData
+        };
       });
 
-      console.log('Inserindo', itemsToInsert.length, 'itens no projeto único...');
+      console.log('Itens a inserir:', itemsToInsert);
 
-      // Inserir itens em lotes para evitar timeout
-      const batchSize = 100;
-      let totalInserted = 0;
+      const { error: itemsError } = await supabase
+        .from('project_items')
+        .insert(itemsToInsert);
 
-      for (let i = 0; i < itemsToInsert.length; i += batchSize) {
-        const batch = itemsToInsert.slice(i, i + batchSize);
-        
-        const { error: insertError } = await supabase
-          .from('project_items')
-          .insert(batch);
-
-        if (insertError) {
-          console.error('Erro ao inserir lote:', insertError);
-          throw new Error(`Erro ao inserir itens (lote ${Math.floor(i/batchSize) + 1}): ${insertError.message}`);
-        }
-
-        totalInserted += batch.length;
-        console.log(`Lote ${Math.floor(i/batchSize) + 1} inserido. Total: ${totalInserted}/${itemsToInsert.length}`);
+      if (itemsError) {
+        console.error('Erro ao inserir itens:', itemsError);
+        throw new Error(`Erro ao inserir itens: ${itemsError.message}`);
       }
 
       console.log('=== IMPORTAÇÃO CONCLUÍDA COM SUCESSO ===');
-      console.log('Projeto único criado:', newProject.name);
-      console.log('Itens importados:', totalInserted);
-
+      
       toast({
         title: "Projeto importado com sucesso!",
-        description: `"${newProject.name}" foi criado com ${totalInserted} itens.`,
+        description: `${projectData.rows.length} itens foram importados para o projeto "${projectName}".`
       });
 
       return newProject;
 
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Erro desconhecido na importação';
-      console.error('=== ERRO NA IMPORTAÇÃO ===', errorMessage);
-      setError(errorMessage);
+    } catch (error) {
+      console.error('=== ERRO NA IMPORTAÇÃO ===', error);
+      const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido na importação';
+      setLocalError(errorMessage);
       
       toast({
         title: "Erro na importação",
         description: errorMessage,
-        variant: "destructive",
+        variant: "destructive"
       });
       
-      throw err;
+      throw error;
     } finally {
       setLoading(false);
     }
@@ -230,8 +219,11 @@ export const useProjectImportWithCreation = () => {
 
   return {
     importAndCreateProject,
-    loading,
-    error,
-    setError
+    loading: loading || importLoading,
+    error: error || importError,
+    setError: (error: string | null) => {
+      setLocalError(error);
+      setError(error);
+    }
   };
 };
