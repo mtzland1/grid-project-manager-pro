@@ -543,35 +543,66 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
 
   const handleImportProject = async (file: File) => {
     try {
-      const projects = await importProjects(file);
-      console.log('Projetos importados:', projects);
+      const projectData = await importProjects(file);
+      console.log('Dados do projeto importados:', projectData);
       
-      // Salvar os projetos no banco de dados
-      const projectsToInsert = projects.map(project => ({
-        name: project.name,
-        description: project.description || '',
-        created_by: user.id,
-      }));
-
+      // Extract project information from the imported data
+      // For now, we'll create a single project with the file name
+      const projectName = file.name.replace(/\.(csv|xlsx)$/i, '');
+      
       const { data, error } = await supabase
         .from('projects')
-        .insert(projectsToInsert)
-        .select();
+        .insert([{
+          name: projectName,
+          description: `Projeto importado de ${file.name} com ${projectData.rows.length} itens`,
+          created_by: user.id,
+        }])
+        .select()
+        .single();
 
       if (error) {
-        console.error('Erro ao salvar projetos:', error);
+        console.error('Erro ao salvar projeto:', error);
         toast({
-          title: "Erro ao salvar projetos",
+          title: "Erro ao salvar projeto",
           description: error.message,
           variant: "destructive",
         });
         return;
       }
 
-      toast({
-        title: "Projetos importados com sucesso!",
-        description: `${projects.length} projetos foram importados e salvos`,
-      });
+      // Now we can save the project items to the database
+      if (projectData.rows.length > 0) {
+        const itemsToInsert = projectData.rows.map(row => ({
+          project_id: data.id,
+          descricao: row.ITEM || row.item || row.Item || 'Item sem descrição',
+          qtd: parseFloat(row.QTD || row.qtd || row.Qtd || '0') || 0,
+          unidade: row.UNIDADE || row.unidade || row.Unidade || 'UN',
+          // Map other fields as needed based on your data structure
+        }));
+
+        const { error: itemsError } = await supabase
+          .from('project_items')
+          .insert(itemsToInsert);
+
+        if (itemsError) {
+          console.error('Erro ao salvar itens do projeto:', itemsError);
+          toast({
+            title: "Projeto criado, mas houve erro ao importar itens",
+            description: itemsError.message,
+            variant: "destructive",
+          });
+        } else {
+          toast({
+            title: "Projeto importado com sucesso!",
+            description: `Projeto "${projectName}" criado com ${projectData.rows.length} itens importados`,
+          });
+        }
+      } else {
+        toast({
+          title: "Projeto criado sem itens",
+          description: `Projeto "${projectName}" foi criado, mas nenhum item foi encontrado no arquivo`,
+        });
+      }
 
       // Recarregar a lista de projetos
       fetchProjects();
@@ -579,7 +610,7 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
       console.error('Erro na importação:', error);
       toast({
         title: "Erro na importação",
-        description: "Não foi possível importar os projetos",
+        description: "Não foi possível importar o projeto",
         variant: "destructive",
       });
     }
