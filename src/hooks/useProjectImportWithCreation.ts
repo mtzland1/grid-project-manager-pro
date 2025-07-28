@@ -102,7 +102,7 @@ export const useProjectImportWithCreation = () => {
       // Buscar colunas existentes do projeto
       const { data: existingColumns, error: columnsError } = await supabase
         .from('project_columns')
-        .select('column_key')
+        .select('column_key', 'column_order')
         .eq('project_id', newProject.id);
 
       if (columnsError) {
@@ -123,7 +123,9 @@ export const useProjectImportWithCreation = () => {
 
       // Criar colunas personalizadas
       if (customColumns.length > 0) {
-        const maxOrder = Math.max(...Array.from(existingColumnKeys).map(() => 1)) || 0;
+        const maxOrder = existingColumns && existingColumns.length > 0
+          ? Math.max(...existingColumns.map(col => col.column_order || 0))
+          : 0;
         
         const customColumnInserts = customColumns.map((header, index) => ({
           project_id: newProject.id,
