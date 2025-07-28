@@ -11,26 +11,40 @@ export const useProjectImport = () => {
   const [error, setError] = useState<string | null>(null);
 
   const parseCSV = (content: string): ProjectData[] => {
-    const lines = content.split('\n');
-    const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/\s+/g, '_'));
-    
-    console.log('Headers encontrados no CSV:', headers);
-    
-    const projects = lines.slice(1)
-      .filter(line => line.trim())
-      .map(line => {
-        const values = line.split(',').map(v => v.trim());
-        const project: ProjectData = {};
+    try {
+      const lines = content.split('\n').filter(line => line.trim());
+      
+      if (lines.length < 2) {
+        throw new Error('Arquivo CSV deve ter pelo menos uma linha de cabeçalho e uma linha de dados');
+      }
+
+      const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/\s+/g, '_'));
+      console.log('CSV Headers:', headers);
+      
+      const projects: ProjectData[] = [];
+      
+      for (let i = 1; i < lines.length; i++) {
+        const values = lines[i].split(',').map(v => v.trim().replace(/^"|"$/g, ''));
         
+        // Pula linhas completamente vazias
+        if (values.every(val => val === '')) {
+          continue;
+        }
+        
+        const project: ProjectData = {};
         headers.forEach((header, index) => {
           project[header] = values[index] || '';
         });
         
-        return project;
-      });
-    
-    console.log('Projetos parseados do CSV:', projects);
-    return projects;
+        projects.push(project);
+      }
+      
+      console.log('CSV Parsed projects:', projects.length);
+      return projects;
+    } catch (error) {
+      console.error('Erro ao processar CSV:', error);
+      throw new Error('Erro ao processar arquivo CSV: ' + (error instanceof Error ? error.message : 'Erro desconhecido'));
+    }
   };
 
   const parseXLSX = (file: File): Promise<ProjectData[]> => {
@@ -43,37 +57,42 @@ export const useProjectImport = () => {
           const workbook = XLSX.read(data, { type: 'array' });
           const firstSheetName = workbook.SheetNames[0];
           const worksheet = workbook.Sheets[firstSheetName];
-          const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+          const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
           
-          if (jsonData.length === 0) {
-            reject(new Error('Arquivo vazio'));
+          if (jsonData.length < 2) {
+            reject(new Error('Arquivo XLSX deve ter pelo menos uma linha de cabeçalho e uma linha de dados'));
             return;
           }
           
           const headers = (jsonData[0] as string[])
-            .map(h => h?.toString().toLowerCase().replace(/\s+/g, '_') || '');
+            .map(h => (h || '').toString().trim().toLowerCase().replace(/\s+/g, '_'));
           
-          console.log('Headers encontrados no XLSX:', headers);
+          console.log('XLSX Headers:', headers);
           
           const projects: ProjectData[] = [];
           
           for (let i = 1; i < jsonData.length; i++) {
             const row = jsonData[i] as any[];
             
-            // Verifica se a linha tem algum conteúdo
-            if (row.some(cell => cell !== null && cell !== undefined && cell !== '')) {
-              const project: ProjectData = {};
-              headers.forEach((header, index) => {
-                project[header] = row[index]?.toString() || '';
-              });
-              projects.push(project);
+            // Pula linhas completamente vazias
+            if (!row || row.every(cell => cell === null || cell === undefined || cell === '')) {
+              continue;
             }
+            
+            const project: ProjectData = {};
+            headers.forEach((header, index) => {
+              const value = row[index];
+              project[header] = value !== null && value !== undefined ? value.toString() : '';
+            });
+            
+            projects.push(project);
           }
           
-          console.log('Projetos parseados do XLSX:', projects);
+          console.log('XLSX Parsed projects:', projects.length);
           resolve(projects);
         } catch (error) {
-          reject(error);
+          console.error('Erro ao processar XLSX:', error);
+          reject(new Error('Erro ao processar arquivo XLSX: ' + (error instanceof Error ? error.message : 'Erro desconhecido')));
         }
       };
       
@@ -87,9 +106,13 @@ export const useProjectImport = () => {
     setError(null);
     
     try {
+      console.log('=== INICIANDO PARSE DO ARQUIVO ===');
+      console.log('Arquivo:', file.name, 'Tamanho:', file.size, 'bytes');
+      
       let projects: ProjectData[];
       
       if (file.name.endsWith('.csv')) {
+        console.log('Processando como CSV...');
         const content = await new Promise<string>((resolve, reject) => {
           const reader = new FileReader();
           reader.onload = (e) => resolve(e.target?.result as string);
@@ -99,11 +122,13 @@ export const useProjectImport = () => {
         
         projects = parseCSV(content);
       } else if (file.name.endsWith('.xlsx')) {
+        console.log('Processando como XLSX...');
         projects = await parseXLSX(file);
       } else {
-        throw new Error('Formato de arquivo não suportado');
+        throw new Error('Formato de arquivo não suportado. Use apenas CSV ou XLSX.');
       }
       
+      console.log('=== PARSE CONCLUÍDO ===');
       console.log('Total de linhas processadas:', projects.length);
       
       if (projects.length === 0) {
@@ -114,8 +139,8 @@ export const useProjectImport = () => {
       
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Erro desconhecido';
+      console.error('=== ERRO NO PARSE ===', errorMessage);
       setError(errorMessage);
-      console.error('Erro na importação:', errorMessage);
       throw err;
     } finally {
       setLoading(false);

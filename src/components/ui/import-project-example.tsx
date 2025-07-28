@@ -7,11 +7,10 @@ export const ImportProjectExample: React.FC = () => {
   const { importAndCreateProject, loading, error, setError } = useProjectImportWithCreation();
 
   const handleImport = async (file: File, projectName: string, projectDescription?: string) => {
-    console.log('ImportProjectExample - handleImport chamado com:', {
-      fileName: file.name,
-      projectName,
-      projectDescription
-    });
+    console.log('=== INICIANDO IMPORTAÇÃO NA UI ===');
+    console.log('Arquivo:', file.name);
+    console.log('Nome do projeto:', projectName);
+    console.log('Descrição:', projectDescription);
 
     try {
       // Validação do nome do projeto
@@ -24,21 +23,18 @@ export const ImportProjectExample: React.FC = () => {
         throw new Error('Nome do projeto deve ter pelo menos 3 caracteres');
       }
 
-      console.log('Iniciando importação do projeto:', {
-        arquivo: file.name,
-        nome: trimmedName,
-        descricao: projectDescription || ''
-      });
+      console.log('Validação passou, iniciando importação...');
       
       const newProject = await importAndCreateProject(file, trimmedName, projectDescription);
       
-      console.log('Projeto importado com sucesso:', newProject);
+      console.log('=== IMPORTAÇÃO CONCLUÍDA NA UI ===');
+      console.log('Projeto criado:', newProject);
       
       // Recarrega a página para mostrar o novo projeto
       window.location.reload();
       
     } catch (error) {
-      console.error('Erro na importação:', error);
+      console.error('=== ERRO NA IMPORTAÇÃO UI ===', error);
       // O erro já é tratado pelo hook useProjectImportWithCreation
     }
   };
@@ -70,7 +66,7 @@ export const ImportProjectExample: React.FC = () => {
             <p className="text-blue-800 font-medium">Processando importação...</p>
           </div>
           <p className="text-blue-700 mt-1">
-            Criando projeto e importando dados do arquivo. Por favor, aguarde...
+            Criando projeto único e importando dados do arquivo. Por favor, aguarde...
           </p>
         </div>
       )}
