@@ -10,15 +10,13 @@ export const ImportProjectExample: React.FC = () => {
     console.log('ImportProjectExample - handleImport chamado com:', {
       fileName: file.name,
       projectName,
-      projectDescription,
-      projectNameType: typeof projectName,
-      projectNameLength: projectName.length
+      projectDescription
     });
 
     try {
-      // Validação rigorosa antes de chamar o hook
+      // Validação do nome do projeto
       if (!projectName || typeof projectName !== 'string') {
-        throw new Error('Nome do projeto é obrigatório e deve ser uma string');
+        throw new Error('Nome do projeto é obrigatório');
       }
 
       const trimmedName = projectName.trim();
@@ -26,18 +24,19 @@ export const ImportProjectExample: React.FC = () => {
         throw new Error('Nome do projeto deve ter pelo menos 3 caracteres');
       }
 
-      console.log('Validação passou, chamando importAndCreateProject com:', {
-        fileName: file.name,
-        name: trimmedName,
-        description: projectDescription || ''
+      console.log('Iniciando importação do projeto:', {
+        arquivo: file.name,
+        nome: trimmedName,
+        descricao: projectDescription || ''
       });
       
       const newProject = await importAndCreateProject(file, trimmedName, projectDescription);
       
-      console.log('Projeto criado com sucesso:', newProject);
+      console.log('Projeto importado com sucesso:', newProject);
       
       // Recarrega a página para mostrar o novo projeto
       window.location.reload();
+      
     } catch (error) {
       console.error('Erro na importação:', error);
       // O erro já é tratado pelo hook useProjectImportWithCreation
@@ -47,12 +46,15 @@ export const ImportProjectExample: React.FC = () => {
   return (
     <div className="flex flex-col gap-4">
       {error && (
-        <div className="p-3 bg-red-50 border border-red-200 rounded-md">
-          <p className="text-red-800 font-medium">Erro:</p>
-          <p className="text-red-700">{error}</p>
+        <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+          <div className="flex items-center gap-2">
+            <div className="w-5 h-5 text-red-500">⚠️</div>
+            <p className="text-red-800 font-medium">Erro na importação</p>
+          </div>
+          <p className="text-red-700 mt-1">{error}</p>
           <button 
             onClick={() => setError(null)}
-            className="text-red-600 hover:text-red-800 text-sm underline mt-1"
+            className="text-red-600 hover:text-red-800 text-sm underline mt-2"
           >
             Fechar
           </button>
@@ -62,9 +64,14 @@ export const ImportProjectExample: React.FC = () => {
       <ImportProjectDialog onImport={handleImport} />
       
       {loading && (
-        <div className="p-3 bg-blue-50 border border-blue-200 rounded-md">
-          <p className="text-blue-800 font-medium">Processando...</p>
-          <p className="text-blue-700">Importando arquivo e criando projeto no banco de dados...</p>
+        <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+          <div className="flex items-center gap-2">
+            <div className="w-5 h-5 text-blue-500 animate-spin">⟳</div>
+            <p className="text-blue-800 font-medium">Processando importação...</p>
+          </div>
+          <p className="text-blue-700 mt-1">
+            Criando projeto e importando dados do arquivo. Por favor, aguarde...
+          </p>
         </div>
       )}
     </div>
