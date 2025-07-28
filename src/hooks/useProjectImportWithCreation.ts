@@ -2,212 +2,216 @@
 import { useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useProjectImport } from './useProjectImport';
+import { useToast } from '@/components/ui/use-toast';
+
+interface ProjectData {
+  [key: string]: any;
+}
 
 export const useProjectImportWithCreation = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { importProjects } = useProjectImport();
+  const { toast } = useToast();
 
-  const importAndCreateProject = async (file: File, projectName: string, projectDescription?: string) => {
+  const normalizeColumnKey = (header: string): string => {
+    return header
+      .toLowerCase()
+      .trim()
+      .replace(/\s+/g, '_')
+      .replace(/[^a-z0-9_]/g, '');
+  };
+
+  const importAndCreateProject = async (
+    file: File, 
+    projectName: string, 
+    projectDescription?: string
+  ) => {
+    console.log('=== INICIANDO IMPORTAÇÃO COM CRIAÇÃO ===');
+    console.log('Arquivo:', file.name);
+    console.log('Nome do projeto:', projectName);
+    console.log('Descrição:', projectDescription);
+
     setLoading(true);
     setError(null);
 
     try {
-      console.log('=== INICIANDO IMPORTAÇÃO ===');
-      console.log('Arquivo:', file.name);
-      console.log('Nome do projeto:', projectName);
-      console.log('Descrição:', projectDescription);
+      // Validação do nome do projeto
+      if (!projectName || typeof projectName !== 'string') {
+        throw new Error('Nome do projeto é obrigatório');
+      }
 
-      // Valida se o nome do projeto é válido
-      if (!projectName || typeof projectName !== 'string' || projectName.trim().length < 3) {
+      const trimmedName = projectName.trim();
+      if (trimmedName.length < 3) {
         throw new Error('Nome do projeto deve ter pelo menos 3 caracteres');
       }
 
-      // Importa os dados do arquivo
-      console.log('Importando dados do arquivo...');
-      const importedData = await importProjects(file);
-      console.log('Dados brutos importados:', importedData.length, 'linhas');
+      // Verificar se já existe um projeto com esse nome
+      const { data: existingProject, error: checkError } = await supabase
+        .from('projects')
+        .select('id')
+        .eq('name', trimmedName)
+        .maybeSingle();
 
-      if (!importedData || importedData.length === 0) {
+      if (checkError) {
+        console.error('Erro ao verificar projeto existente:', checkError);
+        throw new Error('Erro ao verificar projetos existentes');
+      }
+
+      if (existingProject) {
+        throw new Error(`Já existe um projeto com o nome "${trimmedName}"`);
+      }
+
+      // Fazer o parse do arquivo
+      console.log('Iniciando parse do arquivo...');
+      const parsedData = await importProjects(file);
+      
+      if (!parsedData || parsedData.length === 0) {
         throw new Error('Nenhum dado válido encontrado no arquivo');
       }
 
-      // Filtra as linhas válidas ANTES de criar o projeto
-      const validItems = importedData.filter(item => {
-        // Procura por qualquer campo que indique um item válido
-        const itemValue = item.item || item.descricao || item.description || '';
-        const isValid = itemValue !== null && itemValue !== undefined && itemValue.toString().trim() !== '';
-        
-        if (!isValid) {
-          console.log('Item inválido filtrado:', item);
-        }
-        
-        return isValid;
-      });
+      console.log('Dados parseados:', parsedData.length, 'linhas');
 
-      console.log(`Filtragem: ${importedData.length} itens originais -> ${validItems.length} itens válidos`);
-
-      if (validItems.length === 0) {
-        throw new Error('Nenhum item válido encontrado no arquivo. Verifique se há dados na coluna "item", "descricao" ou "description".');
-      }
-
-      // Obtém o usuário atual
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        throw new Error('Usuário não autenticado');
-      }
-
-      console.log('Usuário autenticado:', user.id);
-
-      // INICIA TRANSAÇÃO - Cria o projeto
+      // Criar o projeto
       console.log('Criando projeto...');
-      const { data: project, error: projectError } = await supabase
+      const { data: newProject, error: projectError } = await supabase
         .from('projects')
         .insert({
-          name: projectName.trim(),
-          description: projectDescription?.trim() || '',
-          created_by: user.id
+          name: trimmedName,
+          description: projectDescription || '',
+          created_by: (await supabase.auth.getUser()).data.user?.id
         })
         .select()
         .single();
 
       if (projectError) {
         console.error('Erro ao criar projeto:', projectError);
-        throw new Error(`Erro ao criar projeto: ${projectError.message}`);
+        throw new Error('Erro ao criar projeto: ' + projectError.message);
       }
 
-      console.log('Projeto criado com sucesso:', project.id);
+      console.log('Projeto criado com sucesso:', newProject.id);
 
-      // Obtém as colunas do primeiro item para definir a estrutura das colunas customizadas
-      const sampleData = validItems[0];
-      const allColumnKeys = Object.keys(sampleData);
-      console.log('Colunas encontradas no arquivo:', allColumnKeys);
-      
-      // Define as colunas padrão do sistema
-      const systemColumns = [
-        'item', 'descricao', 'description', 'qtd', 'quantidade', 'unidade', 'mat_uni_pr', 'desconto', 
-        'cc_mat_uni', 'cc_mat_total', 'cc_mo_uni', 'cc_mo_total', 'ipi', 'vlr_total_estimado', 
-        'vlr_total_venda', 'distribuidor', 'reanalise_escopo', 'prioridade_compra', 'reanalise_mo', 
-        'conferencia_estoque', 'a_comprar', 'comprado', 'previsao_chegada', 'expedicao', 
-        'cronograma_inicio', 'data_medicoes', 'data_conclusao', 'manutencao', 'status_global'
-      ];
+      // Esperar um pouco para garantir que as colunas padrão foram criadas
+      await new Promise(resolve => setTimeout(resolve, 1000));
 
-      // Identifica colunas customizadas (que não são do sistema)
-      const customColumns = allColumnKeys.filter(key => 
-        !systemColumns.includes(key.toLowerCase())
-      );
+      // Buscar colunas existentes do projeto
+      const { data: existingColumns, error: columnsError } = await supabase
+        .from('project_columns')
+        .select('column_key')
+        .eq('project_id', newProject.id);
 
-      console.log('Colunas customizadas identificadas:', customColumns);
+      if (columnsError) {
+        console.error('Erro ao buscar colunas:', columnsError);
+        throw new Error('Erro ao buscar colunas do projeto');
+      }
 
-      // Cria colunas customizadas se necessário
+      const existingColumnKeys = new Set(existingColumns?.map(col => col.column_key) || []);
+      console.log('Colunas existentes:', existingColumnKeys);
+
+      // Identificar colunas personalizadas dos dados importados
+      const firstRow = parsedData[0];
+      const customColumns = Object.keys(firstRow).filter(key => {
+        const normalizedKey = normalizeColumnKey(key);
+        return !existingColumnKeys.has(normalizedKey);
+      });
+
+      console.log('Colunas personalizadas encontradas:', customColumns);
+
+      // Criar colunas personalizadas
       if (customColumns.length > 0) {
-        console.log('Criando colunas customizadas...');
-        const columnsToInsert = customColumns.map((key, index) => ({
-          project_id: project.id,
-          column_key: key,
-          column_label: key.charAt(0).toUpperCase() + key.slice(1).replace(/_/g, ' '),
+        const maxOrder = Math.max(...Array.from(existingColumnKeys).map(() => 1)) || 0;
+        
+        const customColumnInserts = customColumns.map((header, index) => ({
+          project_id: newProject.id,
+          column_key: normalizeColumnKey(header),
+          column_label: header,
           column_type: 'text',
           column_width: '120px',
-          column_order: 100 + index,
+          column_order: maxOrder + index + 1,
           is_system_column: false,
           is_calculated: false
         }));
 
-        const { error: columnsError } = await supabase
+        const { error: customColumnsError } = await supabase
           .from('project_columns')
-          .insert(columnsToInsert);
+          .insert(customColumnInserts);
 
-        if (columnsError) {
-          console.error('Erro ao criar colunas customizadas:', columnsError);
-          throw new Error(`Erro ao criar colunas customizadas: ${columnsError.message}`);
+        if (customColumnsError) {
+          console.error('Erro ao criar colunas personalizadas:', customColumnsError);
+          throw new Error('Erro ao criar colunas personalizadas');
         }
 
-        console.log('Colunas customizadas criadas com sucesso');
+        console.log('Colunas personalizadas criadas:', customColumnInserts.length);
       }
 
-      // Converte os dados para o formato esperado pela tabela project_items
-      console.log('Preparando itens para inserção...');
-      const itemsToInsert = validItems.map((item, index) => {
-        console.log(`Processando item ${index + 1}/${validItems.length}:`, item);
-        
-        const baseItem = {
-          project_id: project.id,
-          descricao: item.descricao || item.item || item.description || '',
-          qtd: parseFloat(item.qtd || item.quantidade || '0') || 0,
-          unidade: item.unidade || '',
-          mat_uni_pr: parseFloat(item.mat_uni_pr || '0') || 0,
-          desconto: parseFloat(item.desconto || '0') || 0,
-          cc_mat_uni: parseFloat(item.cc_mat_uni || '0') || 0,
-          cc_mat_total: parseFloat(item.cc_mat_total || '0') || 0,
-          cc_mo_uni: parseFloat(item.cc_mo_uni || '0') || 0,
-          cc_mo_total: parseFloat(item.cc_mo_total || '0') || 0,
-          ipi: parseFloat(item.ipi || '0') || 0,
-          vlr_total_estimado: parseFloat(item.vlr_total_estimado || '0') || 0,
-          vlr_total_venda: parseFloat(item.vlr_total_venda || '0') || 0,
-          distribuidor: item.distribuidor || '',
-          reanalise_escopo: item.reanalise_escopo || null,
-          prioridade_compra: item.prioridade_compra || null,
-          reanalise_mo: item.reanalise_mo || null,
-          conferencia_estoque: item.conferencia_estoque || null,
-          a_comprar: item.a_comprar || null,
-          comprado: item.comprado || null,
-          previsao_chegada: item.previsao_chegada || null,
-          expedicao: item.expedicao || null,
-          cronograma_inicio: item.cronograma_inicio || null,
-          data_medicoes: item.data_medicoes || null,
-          data_conclusao: item.data_conclusao || null,
-          manutencao: item.manutencao || null,
-          status_global: item.status_global || null
+      // Preparar dados para inserção
+      console.log('Preparando dados para inserção...');
+      const itemsToInsert = parsedData.map(row => {
+        const item: any = {
+          project_id: newProject.id,
+          dynamic_data: {}
         };
 
-        // Adiciona dados customizados
-        const dynamicData: Record<string, any> = {};
-        customColumns.forEach(key => {
-          if (item[key] !== undefined && item[key] !== null && item[key] !== '') {
-            dynamicData[key] = item[key];
+        // Processar cada campo do row
+        Object.entries(row).forEach(([key, value]) => {
+          const normalizedKey = normalizeColumnKey(key);
+          
+          if (existingColumnKeys.has(normalizedKey)) {
+            // Campo existe na tabela - mapear diretamente
+            item[normalizedKey] = value || '';
+          } else {
+            // Campo personalizado - salvar no dynamic_data
+            item.dynamic_data[normalizedKey] = value || '';
           }
         });
 
-        return {
-          ...baseItem,
-          dynamic_data: dynamicData
-        };
+        return item;
       });
 
-      console.log('Itens preparados para inserção:', itemsToInsert.length);
+      console.log('Inserindo', itemsToInsert.length, 'itens...');
 
-      // Insere os itens no banco em lotes para evitar timeout
+      // Inserir itens em lotes para evitar timeout
       const batchSize = 100;
-      const totalBatches = Math.ceil(itemsToInsert.length / batchSize);
-      
-      console.log(`Inserindo itens em ${totalBatches} lotes de ${batchSize} itens cada...`);
+      let totalInserted = 0;
 
-      for (let i = 0; i < totalBatches; i++) {
-        const start = i * batchSize;
-        const end = Math.min(start + batchSize, itemsToInsert.length);
-        const batch = itemsToInsert.slice(start, end);
+      for (let i = 0; i < itemsToInsert.length; i += batchSize) {
+        const batch = itemsToInsert.slice(i, i + batchSize);
         
-        console.log(`Inserindo lote ${i + 1}/${totalBatches}: ${batch.length} itens`);
-        
-        const { error: itemsError } = await supabase
+        const { error: insertError } = await supabase
           .from('project_items')
           .insert(batch);
 
-        if (itemsError) {
-          console.error(`Erro ao inserir lote ${i + 1}:`, itemsError);
-          throw new Error(`Erro ao inserir itens (lote ${i + 1}): ${itemsError.message}`);
+        if (insertError) {
+          console.error('Erro ao inserir lote:', insertError);
+          throw new Error(`Erro ao inserir itens (lote ${Math.floor(i/batchSize) + 1}): ${insertError.message}`);
         }
+
+        totalInserted += batch.length;
+        console.log(`Lote ${Math.floor(i/batchSize) + 1} inserido. Total: ${totalInserted}/${itemsToInsert.length}`);
       }
 
       console.log('=== IMPORTAÇÃO CONCLUÍDA COM SUCESSO ===');
-      console.log(`Projeto "${project.name}" criado com ${validItems.length} itens`);
+      console.log('Projeto criado:', newProject.name);
+      console.log('Itens importados:', totalInserted);
 
-      return project;
+      toast({
+        title: "Projeto importado com sucesso!",
+        description: `"${newProject.name}" foi criado com ${totalInserted} itens.`,
+      });
+
+      return newProject;
 
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Erro desconhecido na importação';
       console.error('=== ERRO NA IMPORTAÇÃO ===', errorMessage);
       setError(errorMessage);
+      
+      toast({
+        title: "Erro na importação",
+        description: errorMessage,
+        variant: "destructive",
+      });
+      
       throw err;
     } finally {
       setLoading(false);

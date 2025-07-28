@@ -18,13 +18,36 @@ export const useProjectImport = () => {
         throw new Error('Arquivo CSV deve ter pelo menos uma linha de cabeçalho e uma linha de dados');
       }
 
-      const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/\s+/g, '_'));
+      // Parse mais robusto do CSV considerando aspas e vírgulas
+      const parseCSVLine = (line: string): string[] => {
+        const result = [];
+        let current = '';
+        let inQuotes = false;
+        
+        for (let i = 0; i < line.length; i++) {
+          const char = line[i];
+          
+          if (char === '"') {
+            inQuotes = !inQuotes;
+          } else if (char === ',' && !inQuotes) {
+            result.push(current.trim());
+            current = '';
+          } else {
+            current += char;
+          }
+        }
+        
+        result.push(current.trim());
+        return result;
+      };
+
+      const headers = parseCSVLine(lines[0]).map(h => h.replace(/^"|"$/g, '').trim());
       console.log('CSV Headers:', headers);
       
       const projects: ProjectData[] = [];
       
       for (let i = 1; i < lines.length; i++) {
-        const values = lines[i].split(',').map(v => v.trim().replace(/^"|"$/g, ''));
+        const values = parseCSVLine(lines[i]).map(v => v.replace(/^"|"$/g, '').trim());
         
         // Pula linhas completamente vazias
         if (values.every(val => val === '')) {
@@ -33,7 +56,9 @@ export const useProjectImport = () => {
         
         const project: ProjectData = {};
         headers.forEach((header, index) => {
-          project[header] = values[index] || '';
+          if (header) { // Só processar headers não vazios
+            project[header] = values[index] || '';
+          }
         });
         
         projects.push(project);
@@ -57,15 +82,22 @@ export const useProjectImport = () => {
           const workbook = XLSX.read(data, { type: 'array' });
           const firstSheetName = workbook.SheetNames[0];
           const worksheet = workbook.Sheets[firstSheetName];
-          const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
+          
+          // Configurar opções para melhor parsing
+          const jsonData = XLSX.utils.sheet_to_json(worksheet, { 
+            header: 1, 
+            defval: '',
+            blankrows: false
+          });
           
           if (jsonData.length < 2) {
             reject(new Error('Arquivo XLSX deve ter pelo menos uma linha de cabeçalho e uma linha de dados'));
             return;
           }
           
-          const headers = (jsonData[0] as string[])
-            .map(h => (h || '').toString().trim().toLowerCase().replace(/\s+/g, '_'));
+          const headers = (jsonData[0] as any[])
+            .map(h => h !== null && h !== undefined ? h.toString().trim() : '')
+            .filter(h => h !== ''); // Remove headers vazios
           
           console.log('XLSX Headers:', headers);
           
@@ -81,8 +113,10 @@ export const useProjectImport = () => {
             
             const project: ProjectData = {};
             headers.forEach((header, index) => {
-              const value = row[index];
-              project[header] = value !== null && value !== undefined ? value.toString() : '';
+              if (header) { // Só processar headers não vazios
+                const value = row[index];
+                project[header] = value !== null && value !== undefined ? value.toString().trim() : '';
+              }
             });
             
             projects.push(project);
@@ -111,17 +145,17 @@ export const useProjectImport = () => {
       
       let projects: ProjectData[];
       
-      if (file.name.endsWith('.csv')) {
+      if (file.name.endsWith('.csv') || file.type === 'text/csv') {
         console.log('Processando como CSV...');
         const content = await new Promise<string>((resolve, reject) => {
           const reader = new FileReader();
           reader.onload = (e) => resolve(e.target?.result as string);
           reader.onerror = () => reject(new Error('Erro ao ler arquivo CSV'));
-          reader.readAsText(file);
+          reader.readAsText(file, 'UTF-8');
         });
         
         projects = parseCSV(content);
-      } else if (file.name.endsWith('.xlsx')) {
+      } else if (file.name.endsWith('.xlsx') || file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet') {
         console.log('Processando como XLSX...');
         projects = await parseXLSX(file);
       } else {
