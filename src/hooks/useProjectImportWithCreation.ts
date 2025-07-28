@@ -4,8 +4,13 @@ import { supabase } from '@/integrations/supabase/client';
 import { useProjectImport } from './useProjectImport';
 import { useToast } from '@/components/ui/use-toast';
 
-interface ProjectData {
+interface ProjectRow {
   [key: string]: any;
+}
+
+interface ProjectData {
+  headers: string[];
+  rows: ProjectRow[];
 }
 
 export const useProjectImportWithCreation = () => {
@@ -62,17 +67,17 @@ export const useProjectImportWithCreation = () => {
         throw new Error(`Já existe um projeto com o nome "${trimmedName}"`);
       }
 
-      // Fazer o parse do arquivo
+      // Fazer o parse do arquivo - retorna um único objeto com headers e rows
       console.log('Iniciando parse do arquivo...');
-      const parsedData = await importProjects(file);
+      const projectData: ProjectData = await importProjects(file);
       
-      if (!parsedData || parsedData.length === 0) {
+      if (!projectData || projectData.rows.length === 0) {
         throw new Error('Nenhum dado válido encontrado no arquivo');
       }
 
-      console.log('Dados parseados:', parsedData.length, 'linhas');
+      console.log('Dados parseados - projeto único com', projectData.rows.length, 'linhas');
 
-      // Criar o projeto
+      // Criar UM ÚNICO projeto
       console.log('Criando projeto...');
       const { data: newProject, error: projectError } = await supabase
         .from('projects')
@@ -109,9 +114,8 @@ export const useProjectImportWithCreation = () => {
       console.log('Colunas existentes:', existingColumnKeys);
 
       // Identificar colunas personalizadas dos dados importados
-      const firstRow = parsedData[0];
-      const customColumns = Object.keys(firstRow).filter(key => {
-        const normalizedKey = normalizeColumnKey(key);
+      const customColumns = projectData.headers.filter(header => {
+        const normalizedKey = normalizeColumnKey(header);
         return !existingColumnKeys.has(normalizedKey);
       });
 
@@ -144,17 +148,18 @@ export const useProjectImportWithCreation = () => {
         console.log('Colunas personalizadas criadas:', customColumnInserts.length);
       }
 
-      // Preparar dados para inserção
+      // Preparar dados para inserção - cada ROW vira um ITEM do projeto
       console.log('Preparando dados para inserção...');
-      const itemsToInsert = parsedData.map(row => {
+      const itemsToInsert = projectData.rows.map(row => {
         const item: any = {
           project_id: newProject.id,
           dynamic_data: {}
         };
 
-        // Processar cada campo do row
-        Object.entries(row).forEach(([key, value]) => {
-          const normalizedKey = normalizeColumnKey(key);
+        // Processar cada campo da row
+        projectData.headers.forEach(header => {
+          const value = row[header];
+          const normalizedKey = normalizeColumnKey(header);
           
           if (existingColumnKeys.has(normalizedKey)) {
             // Campo existe na tabela - mapear diretamente
@@ -168,7 +173,7 @@ export const useProjectImportWithCreation = () => {
         return item;
       });
 
-      console.log('Inserindo', itemsToInsert.length, 'itens...');
+      console.log('Inserindo', itemsToInsert.length, 'itens no projeto único...');
 
       // Inserir itens em lotes para evitar timeout
       const batchSize = 100;
@@ -191,7 +196,7 @@ export const useProjectImportWithCreation = () => {
       }
 
       console.log('=== IMPORTAÇÃO CONCLUÍDA COM SUCESSO ===');
-      console.log('Projeto criado:', newProject.name);
+      console.log('Projeto único criado:', newProject.name);
       console.log('Itens importados:', totalInserted);
 
       toast({

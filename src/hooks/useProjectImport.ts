@@ -2,15 +2,20 @@
 import { useState } from 'react';
 import * as XLSX from 'xlsx';
 
-interface ProjectData {
+interface ProjectRow {
   [key: string]: any;
+}
+
+interface ProjectData {
+  headers: string[];
+  rows: ProjectRow[];
 }
 
 export const useProjectImport = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const parseCSV = (content: string): ProjectData[] => {
+  const parseCSV = (content: string): ProjectData => {
     try {
       const lines = content.split('\n').filter(line => line.trim());
       
@@ -44,7 +49,7 @@ export const useProjectImport = () => {
       const headers = parseCSVLine(lines[0]).map(h => h.replace(/^"|"$/g, '').trim());
       console.log('CSV Headers:', headers);
       
-      const projects: ProjectData[] = [];
+      const rows: ProjectRow[] = [];
       
       for (let i = 1; i < lines.length; i++) {
         const values = parseCSVLine(lines[i]).map(v => v.replace(/^"|"$/g, '').trim());
@@ -54,25 +59,29 @@ export const useProjectImport = () => {
           continue;
         }
         
-        const project: ProjectData = {};
+        const row: ProjectRow = {};
         headers.forEach((header, index) => {
           if (header) { // Só processar headers não vazios
-            project[header] = values[index] || '';
+            row[header] = values[index] || '';
           }
         });
         
-        projects.push(project);
+        // Filtrar linhas onde a coluna ITEM está vazia, nula ou indefinida
+        const itemValue = row['ITEM'] || row['item'] || row['Item'];
+        if (itemValue && itemValue.toString().trim() !== '') {
+          rows.push(row);
+        }
       }
       
-      console.log('CSV Parsed projects:', projects.length);
-      return projects;
+      console.log('CSV Parsed rows after filtering:', rows.length);
+      return { headers, rows };
     } catch (error) {
       console.error('Erro ao processar CSV:', error);
       throw new Error('Erro ao processar arquivo CSV: ' + (error instanceof Error ? error.message : 'Erro desconhecido'));
     }
   };
 
-  const parseXLSX = (file: File): Promise<ProjectData[]> => {
+  const parseXLSX = (file: File): Promise<ProjectData> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       
@@ -101,29 +110,33 @@ export const useProjectImport = () => {
           
           console.log('XLSX Headers:', headers);
           
-          const projects: ProjectData[] = [];
+          const rows: ProjectRow[] = [];
           
           for (let i = 1; i < jsonData.length; i++) {
-            const row = jsonData[i] as any[];
+            const rowData = jsonData[i] as any[];
             
             // Pula linhas completamente vazias
-            if (!row || row.every(cell => cell === null || cell === undefined || cell === '')) {
+            if (!rowData || rowData.every(cell => cell === null || cell === undefined || cell === '')) {
               continue;
             }
             
-            const project: ProjectData = {};
+            const row: ProjectRow = {};
             headers.forEach((header, index) => {
               if (header) { // Só processar headers não vazios
-                const value = row[index];
-                project[header] = value !== null && value !== undefined ? value.toString().trim() : '';
+                const value = rowData[index];
+                row[header] = value !== null && value !== undefined ? value.toString().trim() : '';
               }
             });
             
-            projects.push(project);
+            // Filtrar linhas onde a coluna ITEM está vazia, nula ou indefinida
+            const itemValue = row['ITEM'] || row['item'] || row['Item'];
+            if (itemValue && itemValue.toString().trim() !== '') {
+              rows.push(row);
+            }
           }
           
-          console.log('XLSX Parsed projects:', projects.length);
-          resolve(projects);
+          console.log('XLSX Parsed rows after filtering:', rows.length);
+          resolve({ headers, rows });
         } catch (error) {
           console.error('Erro ao processar XLSX:', error);
           reject(new Error('Erro ao processar arquivo XLSX: ' + (error instanceof Error ? error.message : 'Erro desconhecido')));
@@ -135,7 +148,7 @@ export const useProjectImport = () => {
     });
   };
 
-  const importProjects = async (file: File): Promise<ProjectData[]> => {
+  const importProjects = async (file: File): Promise<ProjectData> => {
     setLoading(true);
     setError(null);
     
@@ -143,7 +156,7 @@ export const useProjectImport = () => {
       console.log('=== INICIANDO PARSE DO ARQUIVO ===');
       console.log('Arquivo:', file.name, 'Tamanho:', file.size, 'bytes');
       
-      let projects: ProjectData[];
+      let projectData: ProjectData;
       
       if (file.name.endsWith('.csv') || file.type === 'text/csv') {
         console.log('Processando como CSV...');
@@ -154,22 +167,23 @@ export const useProjectImport = () => {
           reader.readAsText(file, 'UTF-8');
         });
         
-        projects = parseCSV(content);
+        projectData = parseCSV(content);
       } else if (file.name.endsWith('.xlsx') || file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet') {
         console.log('Processando como XLSX...');
-        projects = await parseXLSX(file);
+        projectData = await parseXLSX(file);
       } else {
         throw new Error('Formato de arquivo não suportado. Use apenas CSV ou XLSX.');
       }
       
       console.log('=== PARSE CONCLUÍDO ===');
-      console.log('Total de linhas processadas:', projects.length);
+      console.log('Total de linhas válidas processadas:', projectData.rows.length);
+      console.log('Colunas encontradas:', projectData.headers);
       
-      if (projects.length === 0) {
-        throw new Error('Nenhum dado encontrado no arquivo. Verifique se o arquivo contém dados válidos.');
+      if (projectData.rows.length === 0) {
+        throw new Error('Nenhum dado válido encontrado no arquivo. Verifique se o arquivo contém dados válidos e se a coluna ITEM não está vazia.');
       }
       
-      return projects;
+      return projectData;
       
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Erro desconhecido';
