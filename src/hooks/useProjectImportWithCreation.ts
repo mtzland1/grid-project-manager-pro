@@ -77,7 +77,7 @@ export const useProjectImportWithCreation = () => {
     try {
       // ETAPA 1: Parse do arquivo (seu código aqui já está bom)
       const projectData = await importProjects(file);
-      if (!projectData || !projectData[''] || projectData[''].length === 0) {
+      if (!projectData || !projectData.rows || projectData.rows.length === 0) {
         throw new Error('Nenhuma linha de dados válida foi encontrada no arquivo.');
       }
 
@@ -135,18 +135,16 @@ export const useProjectImportWithCreation = () => {
         headerToKeyMap.set(header, generateColumnKey(header));
       });
 
-      const itemsToInsert = projectData[''].map((row: any) => { // 1. Use a chave correta ('') e nomeie o parâmetro da linha (row)
+      const itemsToInsert = projectData.rows.map((row: any) => {
         const dynamicData: { [key: string]: any } = {};
-       
+        
         for (const header of projectData.headers) {
           const key = headerToKeyMap.get(header)!;
-          // 2. Acesse o valor da célula usando row[header]
           dynamicData[key] = row[header] !== undefined ? row[header] : '';
         }
 
         return {
           project_id: newProject.id,
-          // 3. Mapeie as colunas principais acessando as propriedades do objeto 'row'
           descricao: row['DESCRIÇÃO'] || row['DESCRICAO'] || '',
           qtd: parseCurrency(row['QTD']),
           unidade: row['UNIDADE'] || '',
@@ -158,22 +156,22 @@ export const useProjectImportWithCreation = () => {
       const { error: itemsError } = await supabase.from('project_items').insert(itemsToInsert);
       if (itemsError) throw new Error(`Erro ao inserir itens: ${itemsError.message}`);
 
-      toast({
-        title: "Projeto importado com sucesso!",
-        description: `${itemsToInsert.length} itens foram importados para "${projectName}".`
-      });
+      toast({
+        title: "Projeto importado com sucesso!",
+        description: `${itemsToInsert.length} itens foram importados para "${projectName}".`
+      });
 
-      return newProject;
+      return newProject;
 
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido na importação';
-      console.error('=== ERRO FINAL NA IMPORTAÇÃO ===', error);
-      toast({ title: "Erro na Importação", description: errorMessage, variant: "destructive" });
-      throw error; // Re-lança o erro para o chamador tratar
-    } finally {
-      setLoading(false);
-    }
-  };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido na importação';
+      console.error('=== ERRO FINAL NA IMPORTAÇÃO ===', error);
+      toast({ title: "Erro na Importação", description: errorMessage, variant: "destructive" });
+      throw error;
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return {
     importAndCreateProject,
