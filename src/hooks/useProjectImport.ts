@@ -1,4 +1,3 @@
-
 import { useState } from 'react';
 import * as XLSX from 'xlsx';
 
@@ -11,180 +10,133 @@ interface ProjectData {
   rows: ProjectRow[];
 }
 
+// -----------------------------------------------------
+// FUNÇÕES AUXILIARES REUTILIZÁVEIS
+// -----------------------------------------------------
+
+/**
+ * Lê o conteúdo de um arquivo de forma assíncrona.
+ */
+const readFileAs = <T extends 'text' | 'arrayBuffer'>(
+  file: File,
+  format: T
+): Promise<T extends 'text' ? string : ArrayBuffer> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => resolve(e.target?.result as any);
+    reader.onerror = (e) => reject(new Error('Erro ao ler o arquivo: ' + e));
+    if (format === 'text') {
+      reader.readAsText(file, 'UTF-8');
+    } else {
+      reader.readAsArrayBuffer(file);
+    }
+  });
+};
+
+/**
+ * Processa um conjunto de dados brutos (array de arrays) e os transforma em um array de objetos de linha,
+ * aplicando a filtragem necessária (ex: coluna ITEM não pode ser vazia).
+ */
+const processAndFilterRows = (allRowsData: any[][], headers: string[]): ProjectRow[] => {
+  const rows: ProjectRow[] = [];
+  const REQUIRED_COLUMN_NAME = 'ITEM'; // Centraliza a regra de negócio
+
+  for (const rowData of allRowsData) {
+    if (!rowData || rowData.every(cell => cell === null || cell === undefined || cell === '')) {
+      continue; // Pula linhas totalmente vazias
+    }
+
+    const row: ProjectRow = {};
+    headers.forEach((header, index) => {
+      if (header) { // Ignora colunas sem cabeçalho
+        const value = rowData[index];
+        row[header] = value !== null && value !== undefined ? String(value).trim() : '';
+      }
+    });
+
+    // Encontra a chave 'ITEM' de forma case-insensitive
+    const itemKey = Object.keys(row).find(key => key.toUpperCase() === REQUIRED_COLUMN_NAME);
+    
+    // Filtra a linha se o valor da coluna 'ITEM' for válido
+    if (itemKey && row[itemKey] && String(row[itemKey]).trim() !== '') {
+      rows.push(row);
+    }
+  }
+  return rows;
+};
+
+// -----------------------------------------------------
+// HOOK PRINCIPAL
+// -----------------------------------------------------
 export const useProjectImport = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const parseCSV = (content: string): ProjectData => {
-    try {
-      const lines = content.split('\n').filter(line => line.trim());
-      
-      if (lines.length < 2) {
-        throw new Error('Arquivo CSV deve ter pelo menos uma linha de cabeçalho e uma linha de dados');
-      }
+    const lines = content.split('\n').filter(line => line.trim());
+    if (lines.length < 2) throw new Error('CSV precisa de cabeçalho e pelo menos uma linha de dados.');
 
-      // Parse mais robusto do CSV considerando aspas e vírgulas
-      const parseCSVLine = (line: string): string[] => {
+    const parseCSVLine = (line: string): string[] => {
+        // Seu parser de linha CSV (mantido como está, pois é específico)
         const result = [];
         let current = '';
         let inQuotes = false;
-        
         for (let i = 0; i < line.length; i++) {
-          const char = line[i];
-          
-          if (char === '"') {
-            inQuotes = !inQuotes;
-          } else if (char === ',' && !inQuotes) {
-            result.push(current.trim());
-            current = '';
-          } else {
-            current += char;
-          }
+            const char = line[i];
+            if (char === '"') inQuotes = !inQuotes;
+            else if (char === ',' && !inQuotes) {
+                result.push(current.trim().replace(/^"|"$/g, ''));
+                current = '';
+            } else current += char;
         }
-        
-        result.push(current.trim());
+        result.push(current.trim().replace(/^"|"$/g, ''));
         return result;
-      };
+    };
+    
+    const headers = parseCSVLine(lines[0]);
+    const allRowsData = lines.slice(1).map(line => parseCSVLine(line));
+    const rows = processAndFilterRows(allRowsData, headers);
 
-      const headers = parseCSVLine(lines[0]).map(h => h.replace(/^"|"$/g, '').trim());
-      console.log('CSV Headers:', headers);
-      
-      const rows: ProjectRow[] = [];
-      
-      for (let i = 1; i < lines.length; i++) {
-        const values = parseCSVLine(lines[i]).map(v => v.replace(/^"|"$/g, '').trim());
-        
-        // Pula linhas completamente vazias
-        if (values.every(val => val === '')) {
-          continue;
-        }
-        
-        const row: ProjectRow = {};
-        headers.forEach((header, index) => {
-          if (header) { // Só processar headers não vazios
-            row[header] = values[index] || '';
-          }
-        });
-        
-        // Filtrar linhas onde a coluna ITEM está vazia, nula ou indefinida
-        const itemValue = row['ITEM'] || row['item'] || row['Item'];
-        if (itemValue && itemValue.toString().trim() !== '') {
-          rows.push(row);
-        }
-      }
-      
-      console.log('CSV Parsed rows after filtering:', rows.length);
-      return { headers, rows };
-    } catch (error) {
-      console.error('Erro ao processar CSV:', error);
-      throw new Error('Erro ao processar arquivo CSV: ' + (error instanceof Error ? error.message : 'Erro desconhecido'));
-    }
+    return { headers, rows };
   };
 
-  const parseXLSX = (file: File): Promise<ProjectData> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      
-      reader.onload = (e) => {
-        try {
-          const data = new Uint8Array(e.target?.result as ArrayBuffer);
-          const workbook = XLSX.read(data, { type: 'array' });
-          const firstSheetName = workbook.SheetNames[0];
-          const worksheet = workbook.Sheets[firstSheetName];
-          
-          // Configurar opções para melhor parsing
-          const jsonData = XLSX.utils.sheet_to_json(worksheet, { 
-            header: 1, 
-            defval: '',
-            blankrows: false
-          });
-          
-          if (jsonData.length < 2) {
-            reject(new Error('Arquivo XLSX deve ter pelo menos uma linha de cabeçalho e uma linha de dados'));
-            return;
-          }
-          
-          const headers = (jsonData[0] as any[])
-            .map(h => h !== null && h !== undefined ? h.toString().trim() : '')
-            .filter(h => h !== ''); // Remove headers vazios
-          
-          console.log('XLSX Headers:', headers);
-          
-          const rows: ProjectRow[] = [];
-          
-          for (let i = 1; i < jsonData.length; i++) {
-            const rowData = jsonData[i] as any[];
-            
-            // Pula linhas completamente vazias
-            if (!rowData || rowData.every(cell => cell === null || cell === undefined || cell === '')) {
-              continue;
-            }
-            
-            const row: ProjectRow = {};
-            headers.forEach((header, index) => {
-              if (header) { // Só processar headers não vazios
-                const value = rowData[index];
-                row[header] = value !== null && value !== undefined ? value.toString().trim() : '';
-              }
-            });
-            
-            // Filtrar linhas onde a coluna ITEM está vazia, nula ou indefinida
-            const itemValue = row['ITEM'] || row['item'] || row['Item'];
-            if (itemValue && itemValue.toString().trim() !== '') {
-              rows.push(row);
-            }
-          }
-          
-          console.log('XLSX Parsed rows after filtering:', rows.length);
-          resolve({ headers, rows });
-        } catch (error) {
-          console.error('Erro ao processar XLSX:', error);
-          reject(new Error('Erro ao processar arquivo XLSX: ' + (error instanceof Error ? error.message : 'Erro desconhecido')));
-        }
-      };
-      
-      reader.onerror = () => reject(new Error('Erro ao ler arquivo'));
-      reader.readAsArrayBuffer(file);
-    });
+  const parseXLSX = async (file: File): Promise<ProjectData> => {
+    const data = await readFileAs(file, 'arrayBuffer');
+    const workbook = XLSX.read(data, { type: 'array' });
+    const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+
+    const jsonData = XLSX.utils.sheet_to_json<any[]>(worksheet, { header: 1, defval: '', blankrows: false });
+    if (jsonData.length < 2) throw new Error('XLSX precisa de cabeçalho e pelo menos uma linha de dados.');
+    
+    const headers = jsonData[0].map(h => String(h).trim()).filter(h => h !== '');
+    const allRowsData = jsonData.slice(1);
+    const rows = processAndFilterRows(allRowsData, headers);
+
+    return { headers, rows };
   };
 
   const importProjects = async (file: File): Promise<ProjectData> => {
     setLoading(true);
     setError(null);
-    
     try {
       console.log('=== INICIANDO PARSE DO ARQUIVO ===');
-      console.log('Arquivo:', file.name, 'Tamanho:', file.size, 'bytes');
-      
       let projectData: ProjectData;
-      
+
       if (file.name.endsWith('.csv') || file.type === 'text/csv') {
-        console.log('Processando como CSV...');
-        const content = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = (e) => resolve(e.target?.result as string);
-          reader.onerror = () => reject(new Error('Erro ao ler arquivo CSV'));
-          reader.readAsText(file, 'UTF-8');
-        });
-        
+        const content = await readFileAs(file, 'text');
         projectData = parseCSV(content);
-      } else if (file.name.endsWith('.xlsx') || file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet') {
-        console.log('Processando como XLSX...');
+      } else if (file.name.endsWith('.xlsx') || file.type.includes('spreadsheetml')) {
         projectData = await parseXLSX(file);
       } else {
-        throw new Error('Formato de arquivo não suportado. Use apenas CSV ou XLSX.');
+        throw new Error('Formato de arquivo não suportado. Use CSV ou XLSX.');
       }
-      
+
       console.log('=== PARSE CONCLUÍDO ===');
-      console.log('Total de linhas válidas processadas:', projectData.rows.length);
-      console.log('Colunas encontradas:', projectData.headers);
-      
       if (projectData.rows.length === 0) {
-        throw new Error('Nenhum dado válido encontrado no arquivo. Verifique se o arquivo contém dados válidos e se a coluna ITEM não está vazia.');
+        throw new Error('Nenhum dado válido encontrado. Verifique se o arquivo não está vazio e se a coluna ITEM está preenchida.');
       }
-      
       return projectData;
-      
+
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Erro desconhecido';
       console.error('=== ERRO NO PARSE ===', errorMessage);
@@ -195,10 +147,5 @@ export const useProjectImport = () => {
     }
   };
 
-  return {
-    importProjects,
-    loading,
-    error,
-    setError
-  };
+  return { importProjects, loading, error, setError };
 };
