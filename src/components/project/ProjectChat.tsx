@@ -338,7 +338,7 @@ const ProjectChat = ({ project }: ProjectChatProps) => {
           <div className="flex items-center gap-3">
             <MessageCircle className="h-6 w-6 text-primary" />
             <div>
-              <h3 className="text-lg font-semibold">Chat WhatsApp Style</h3>
+              <h3 className="text-lg font-semibold">Chat</h3>
               <p className="text-sm text-muted-foreground font-normal flex items-center gap-2">
                 {connected ? (
                   <>
@@ -385,8 +385,6 @@ const ProjectChat = ({ project }: ProjectChatProps) => {
               {messages.length === 0 ? (
                 <div className="text-center py-16 text-muted-foreground">
                   <MessageCircle className="h-12 w-12 mx-auto mb-4 opacity-30" />
-                  <p className="text-lg font-medium">Chat em tempo real ativo!</p>
-                  <p className="text-sm">As mensagens aparecerão instantaneamente</p>
                 </div>
               ) : (
                 messages.map((message, index) => {

@@ -59,7 +59,6 @@ interface ProjectColumn {
   column_width: string;
   column_order: number;
   is_system_column: boolean;
-  is_calculated: boolean;
 }
 
 interface RolePermission {
@@ -222,17 +221,12 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
 
   const calculateRow = (row: ProjectRow): ProjectRow => {
     const qtd = row.qtd || 0;
-    const matUniPr = row.mat_uni_pr || 0;
-    const desconto = row.desconto || 0;
     const ccMoUni = row.cc_mo_uni || 0;
 
-    // Calculate unit cost with discount
-    const ccMatUni = matUniPr * (1 - desconto / 100);
-    
+    // Only calculate cc_mo_total if cc_mo_uni exists
+    // cc_mat_uni and cc_mat_total should come from imported data
     return {
       ...row,
-      cc_mat_uni: ccMatUni,
-      cc_mat_total: ccMatUni * qtd,
       cc_mo_total: ccMoUni * qtd,
     };
   };
@@ -548,76 +542,7 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
         </div>
       </header>
 
-      {/* Cards de totais mais modernos */}
-      <div className="bg-gradient-to-r from-primary/5 to-primary/10 border-b">
-        <div className="container mx-auto px-6 py-6">
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <Card className="border-l-4 border-l-blue-500 shadow-sm hover:shadow-md transition-shadow">
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">Total Material</p>
-                    <p className="text-2xl font-bold text-blue-600">
-                      {formatValue(totals.cc_mat_total, 'currency')}
-                    </p>
-                  </div>
-                  <div className="h-8 w-8 bg-blue-100 rounded-full flex items-center justify-center">
-                    <div className="h-4 w-4 bg-blue-500 rounded-sm" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-            
-            <Card className="border-l-4 border-l-green-500 shadow-sm hover:shadow-md transition-shadow">
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">Total Mão de Obra</p>
-                    <p className="text-2xl font-bold text-green-600">
-                      {formatValue(totals.cc_mo_total, 'currency')}
-                    </p>
-                  </div>
-                  <div className="h-8 w-8 bg-green-100 rounded-full flex items-center justify-center">
-                    <div className="h-4 w-4 bg-green-500 rounded-sm" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-            
-            <Card className="border-l-4 border-l-purple-500 shadow-sm hover:shadow-md transition-shadow">
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">Total Estimado</p>
-                    <p className="text-2xl font-bold text-purple-600">
-                      {formatValue(totals.vlr_total_estimado, 'currency')}
-                    </p>
-                  </div>
-                  <div className="h-8 w-8 bg-purple-100 rounded-full flex items-center justify-center">
-                    <div className="h-4 w-4 bg-purple-500 rounded-sm" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-            
-            <Card className="border-l-4 border-l-orange-500 shadow-sm hover:shadow-md transition-shadow">
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">Total Venda</p>
-                    <p className="text-2xl font-bold text-orange-600">
-                      {formatValue(totals.vlr_total_venda, 'currency')}
-                    </p>
-                  </div>
-                  <div className="h-8 w-8 bg-orange-100 rounded-full flex items-center justify-center">
-                    <div className="h-4 w-4 bg-orange-500 rounded-sm" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-      </div>
+
 
       {/* Tabela moderna */}
       <div className="container mx-auto px-6 py-6">
@@ -653,11 +578,6 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
                         >
                           <div className="flex items-center space-x-2">
                             <span>{column.column_label}</span>
-                            {column.is_calculated && (
-                              <Badge variant="outline" className="text-xs px-1 py-0">
-                                Calc
-                              </Badge>
-                            )}
                           </div>
                         </TableHead>
                       ))}
@@ -738,7 +658,7 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
                                 className="p-3"
                                 style={{ width: column.column_width, minWidth: column.column_width }}
                               >
-                                {editingRow === row.id && !column.is_calculated && canEditThisColumn ? (
+                                {editingRow === row.id && canEditThisColumn ? (
                                   <Input
                                     type={column.column_type === 'number' || column.column_type === 'currency' || column.column_type === 'percentage' ? 'number' : 'text'}
                                     value={value || ''}
@@ -764,11 +684,9 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
                                   />
                                 ) : (
                                   <div className={`text-sm ${
-                                    column.is_calculated 
-                                      ? 'font-semibold text-primary' 
-                                      : column.column_type === 'currency' 
-                                        ? 'font-medium text-foreground'
-                                        : 'text-muted-foreground'
+                                    column.column_type === 'currency' 
+                                      ? 'font-medium text-foreground'
+                                      : 'text-muted-foreground'
                                   }`}>
                                     {formatValue(value, column.column_type)}
                                   </div>
@@ -785,8 +703,7 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
             </div>
             
             {filteredRows.length > 0 && (
-              <div className="p-4 bg-muted/20 border-t text-xs text-muted-foreground flex items-center justify-between">
-                <span>* Campos marcados como "Calc" são calculados automaticamente</span>
+              <div className="p-4 bg-muted/20 border-t text-xs text-muted-foreground flex items-center justify-end">
                 <span>{filteredRows.length} itens exibidos</span>
               </div>
             )}

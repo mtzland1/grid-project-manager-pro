@@ -26,7 +26,6 @@ interface ProjectColumn {
   column_width: string;
   column_order: number;
   is_system_column: boolean;
-  is_calculated: boolean;
 }
 
 interface RolePermission {
@@ -696,9 +695,7 @@ const RolePermissionManager = ({ project }: RolePermissionManagerProps) => {
                         <div className="flex items-center gap-2">
                           {getPermissionIcon(currentPermission)}
                           <span className="font-medium">{column.column_label}</span>
-                          {column.is_calculated && (
-                            <Badge variant="secondary" className="text-xs">Calculada</Badge>
-                          )}
+
                           {!column.is_system_column && (
                             <Badge variant="outline" className="text-xs">Customizada</Badge>
                           )}
@@ -719,7 +716,7 @@ const RolePermissionManager = ({ project }: RolePermissionManagerProps) => {
                                     ? '' 
                                     : getPermissionColor(level)
                                 }`}
-                                disabled={column.is_calculated && level === 'edit'}
+
                               >
                                 {getPermissionIcon(level)}
                                 <span className="ml-1 capitalize">

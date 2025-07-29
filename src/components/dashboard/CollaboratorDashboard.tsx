@@ -145,7 +145,7 @@ const CollaboratorDashboard = ({ user }: CollaboratorDashboardProps) => {
                 <Grid3X3 className="h-6 w-6 text-white" />
               </div>
               <div>
-                <h1 className="text-xl font-bold text-gray-900">Project Manager Grid</h1>
+                <h1 className="text-xl font-bold text-gray-900">Gerencidor de Projetos</h1>
                 <p className="text-sm text-gray-500">Dashboard do Colaborador</p>
               </div>
             </div>
@@ -185,14 +185,9 @@ const CollaboratorDashboard = ({ user }: CollaboratorDashboardProps) => {
           
           <Card className="bg-white shadow-sm">
             <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-600">Acesso</p>
-                  <p className="text-3xl font-bold text-gray-900">Visualização</p>
-                </div>
-                <div className="bg-blue-100 p-3 rounded-full">
-                  <Eye className="h-6 w-6 text-blue-600" />
-                </div>
+              <div>
+                <p className="text-sm font-medium text-gray-600">Acesso</p>
+                <p className="text-3xl font-bold text-gray-900">Visualização</p>
               </div>
             </CardContent>
           </Card>

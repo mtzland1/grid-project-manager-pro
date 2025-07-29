@@ -5,9 +5,14 @@ import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/components/ui/use-toast';
 
 interface ProjectColumn {
+  id: string;
+  project_id: string;
   column_key: string;
   column_label: string;
   column_type: string;
+  column_width: string;
+  column_order: number;
+  is_system_column: boolean;
 }
 
 interface ProjectItem {

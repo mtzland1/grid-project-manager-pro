@@ -408,8 +408,7 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
           column_type: col.column_type,
           column_width: col.column_width,
           column_order: col.column_order,
-          is_system_column: col.is_system_column,
-          is_calculated: col.is_calculated
+          is_system_column: col.is_system_column
         })) || [];
 
       if (columnsToInsert.length > 0) {
@@ -432,8 +431,7 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
                 column_label: originalCol.column_label,
                 column_type: originalCol.column_type,
                 column_width: originalCol.column_width,
-                column_order: originalCol.column_order,
-                is_calculated: originalCol.is_calculated
+                column_order: originalCol.column_order
               })
               .eq('project_id', newProject.id)
               .eq('column_key', originalCol.column_key);
@@ -593,7 +591,6 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
       if (upperHeader.includes('PREÇO') || upperHeader.includes('VALOR') || 
           upperHeader.includes('TOTAL') || upperHeader.includes('UNITARIO') || 
           upperHeader.includes('CC') || upperHeader.includes('VLR') || 
-          upperHeader.includes('MINIIMO') || upperHeader.includes('MINIMO') || 
           upperHeader.includes('PV')) {
         return 'currency';
       }
@@ -984,7 +981,7 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center space-x-3">
-              <h1 className="text-xl font-bold text-gray-900">Project Manager Grid</h1>
+              <h1 className="text-xl font-bold text-gray-900">Gerencidor de Projetos</h1>
               <Badge variant="secondary" className="bg-red-100 text-red-800">
                 Admin
               </Badge>

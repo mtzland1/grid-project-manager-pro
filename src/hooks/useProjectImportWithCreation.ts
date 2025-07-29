@@ -17,7 +17,6 @@ interface ProjectColumn {
   column_width: string;
   column_order: number;
   is_system_column: boolean;
-  is_calculated: boolean;
 }
 
 // --- FUNÇÕES AUXILIARES ROBUSTAS ---
@@ -37,7 +36,7 @@ const generateColumnKey = (label: string): string => {
 // 2. Função para mapear tipo de dado com base no nome do header
 const mapColumnType = (headerName: string): string => {
   const upperHeader = headerName.toUpperCase();
-  if (upperHeader.includes('PREÇO') || upperHeader.includes('VALOR') || upperHeader.includes('TOTAL') || upperHeader.includes('UNITARIO') || upperHeader.includes('CC') || upperHeader.includes('VLR') || upperHeader.includes('MINIIMO') || upperHeader.includes('MINIMO') || upperHeader.includes('PV')) {
+  if (upperHeader.includes('PREÇO') || upperHeader.includes('VALOR') || upperHeader.includes('TOTAL') || upperHeader.includes('UNITARIO') || upperHeader.includes('CC') || upperHeader.includes('VLR') || upperHeader.includes('PV')) {
     return 'currency';
   }
   if (upperHeader.includes('QTD') || upperHeader.includes('QUANTIDADE')) {
@@ -132,8 +131,7 @@ export const useProjectImportWithCreation = () => {
             column_type: mapColumnType(col.label),
             column_width: '150px',
             column_order: col.order,
-            is_system_column: false,
-            is_calculated: false
+            is_system_column: false
           })));
         if (columnsInsertError) throw new Error(`Erro ao criar novas colunas: ${columnsInsertError.message}`);
       }
@@ -162,13 +160,20 @@ export const useProjectImportWithCreation = () => {
         }
 
         return {
-          project_id: newProject.id,
-          descricao: row['DESCRIÇÃO'] || row['DESCRICAO'] || '',
-          qtd: parseCurrency(row['QTD']),
-          unidade: row['UNIDADE'] || '',
-          mat_uni_pr: parseCurrency(row['MINIIMO UNITARIO'] || row['MINIMO UNITARIO']),
-          dynamic_data: dynamicData
-        };
+          project_id: newProject.id,
+          descricao: row['DESCRIÇÃO'] || row['DESCRICAO'] || '',
+          qtd: parseCurrency(row['QTD'] || row['QUANTIDADE']),
+          unidade: row['UNIDADE'] || '',
+          mat_uni_pr: parseCurrency(row['MAT UNI - PR (R$)'] || row['MAT UNI PR'] || row['PREÇO UNITÁRIO'] || row['PRECO UNITARIO']),
+          cc_mat_uni: parseCurrency(row['CC MAT UNI (R$)'] || row['CC MAT UNI']),
+          desconto: parseCurrency(row['DESCONTO (%)'] || row['DESCONTO']),
+          cc_mo_uni: parseCurrency(row['CC MO UNI (R$)'] || row['CC MO UNI']),
+          ipi: parseCurrency(row['IPI'] || row['IPI (%)']),
+          vlr_total_estimado: parseCurrency(row['VALOR TOTAL ESTIMADO'] || row['VLR TOTAL ESTIMADO']),
+          vlr_total_venda: parseCurrency(row['VALOR TOTAL VENDA'] || row['VLR TOTAL VENDA']),
+          distribuidor: row['DISTRIBUIDOR'] || '',
+          dynamic_data: dynamicData
+        };
       });
 
       const { error: itemsError } = await supabase.from('project_items').insert(itemsToInsert);

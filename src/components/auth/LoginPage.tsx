@@ -45,7 +45,7 @@ const LoginPage = () => {
       } else {
         toast({
           title: "Login realizado com sucesso!",
-          description: "Bem-vindo ao Project Manager Grid",
+          description: "Bem-vindo ao Gerenciador de Projetos",
         });
       }
     } catch (err) {
@@ -142,8 +142,7 @@ const LoginPage = () => {
             </div>
           </div>
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Project Manager Grid</h1>
-            <p className="text-gray-600 mt-2">Sistema avançado de gerenciamento de projetos</p>
+            <h1 className="text-3xl font-bold text-gray-900">Gerenciador de Projetos</h1>
           </div>
         </div>
 
@@ -267,21 +266,6 @@ const LoginPage = () => {
                 </form>
               </TabsContent>
             </Tabs>
-          </CardContent>
-        </Card>
-
-        {/* Demo Info */}
-        <Card className="bg-indigo-50 border-indigo-200">
-          <CardContent className="pt-6">
-            <div className="text-center space-y-2">
-              <h3 className="font-semibold text-indigo-900">Conta Demo</h3>
-              <p className="text-sm text-indigo-700">
-                Admin: admin@demo.com | Senha: admin123
-              </p>
-              <p className="text-sm text-indigo-700">
-                Colaborador: user@demo.com | Senha: user123
-              </p>
-            </div>
           </CardContent>
         </Card>
       </div>
