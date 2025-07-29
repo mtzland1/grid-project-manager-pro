@@ -33,6 +33,9 @@ const mapColumnType = (headerName: string): string => {
   if (upperHeader.includes('QTD') || upperHeader.includes('QUANTIDADE')) {
     return 'number';
   }
+  if (upperHeader.includes('DATA') || upperHeader.includes('PREVISÃO') || upperHeader.includes('CRONOGRAMA')) {
+    return 'date';
+  }
   return 'text';
 };
 
@@ -79,7 +82,7 @@ export const useProjectImportWithCreation = () => {
     setLoading(true);
 
     try {
-      console.log('=== INICIANDO IMPORTAÇÃO ===');
+      console.log('=== INICIANDO IMPORTAÇÃO CORRIGIDA ===');
       
       // ETAPA 1: Parse do arquivo
       const projectData = await importProjects(file);
@@ -87,7 +90,7 @@ export const useProjectImportWithCreation = () => {
         throw new Error('Nenhuma linha de dados válida foi encontrada no arquivo.');
       }
 
-      console.log('Headers encontrados:', projectData.headers);
+      console.log('Headers do CSV:', projectData.headers);
       console.log('Primeira linha de dados:', projectData.rows[0]);
 
       // ETAPA 2: Criação do projeto
@@ -104,18 +107,20 @@ export const useProjectImportWithCreation = () => {
 
       console.log('Projeto criado:', newProject);
 
-      // ETAPA 3: CORREÇÃO - Criar APENAS as colunas que existem no arquivo
-      // Primeiro, limpar todas as colunas existentes do projeto
-      const { error: deleteColumnsError } = await supabase
+      // ETAPA 3: CORREÇÃO CRÍTICA - Deletar TODAS as colunas padrão criadas automaticamente
+      console.log('Deletando colunas padrão criadas automaticamente...');
+      const { error: deleteAllColumnsError } = await supabase
         .from('project_columns')
         .delete()
         .eq('project_id', newProject.id);
 
-      if (deleteColumnsError) {
-        console.warn('Aviso ao deletar colunas existentes:', deleteColumnsError.message);
+      if (deleteAllColumnsError) {
+        console.error('Erro ao deletar colunas padrão:', deleteAllColumnsError.message);
+      } else {
+        console.log('Colunas padrão deletadas com sucesso');
       }
 
-      // Criar apenas as colunas que existem no arquivo CSV
+      // ETAPA 4: Criar APENAS as colunas que existem no arquivo CSV
       const columnsToInsert = projectData.headers
         .map((header, index) => {
           const key = generateColumnKey(header);
@@ -123,6 +128,7 @@ export const useProjectImportWithCreation = () => {
             console.warn(`Header vazio ou inválido encontrado: "${header}". Será ignorado.`);
             return null;
           }
+          console.log(`Criando coluna: "${header}" -> "${key}"`);
           return {
             project_id: newProject.id,
             column_key: key,
@@ -135,16 +141,20 @@ export const useProjectImportWithCreation = () => {
         })
         .filter(col => col !== null);
 
-      console.log('Colunas a serem criadas:', columnsToInsert);
+      console.log('Total de colunas a criar:', columnsToInsert.length);
+      console.log('Colunas que serão criadas:', columnsToInsert.map(col => col?.column_label));
 
       if (columnsToInsert.length > 0) {
-        const { error: columnsInsertError } = await supabase
+        const { data: insertedColumns, error: columnsInsertError } = await supabase
           .from('project_columns')
-          .insert(columnsToInsert);
+          .insert(columnsToInsert)
+          .select();
+        
         if (columnsInsertError) throw new Error(`Erro ao criar colunas: ${columnsInsertError.message}`);
+        console.log('Colunas inseridas com sucesso:', insertedColumns?.length);
       }
 
-      // ETAPA 4: CORREÇÃO - Preparação e Inserção dos Itens preservando valores originais
+      // ETAPA 5: CORREÇÃO - Mapeamento direto dos dados do CSV
       const headerToKeyMap = new Map<string, string>();
       projectData.headers.forEach(header => {
         const key = generateColumnKey(header);
@@ -155,12 +165,14 @@ export const useProjectImportWithCreation = () => {
 
       console.log('Mapeamento header->key:', Object.fromEntries(headerToKeyMap));
 
+      // ETAPA 6: Preparar itens com valores corretos
       const itemsToInsert = projectData.rows.map((row: any, rowIndex: number) => {
-        console.log(`Processando linha ${rowIndex + 1}:`, row);
+        console.log(`\n--- Processando linha ${rowIndex + 1} ---`);
+        console.log('Dados da linha:', row);
         
         const dynamicData: { [key: string]: any } = {};
         
-        // Processar todos os headers do arquivo
+        // Processar TODOS os headers do arquivo e mapear corretamente
         for (const header of projectData.headers) {
           const key = headerToKeyMap.get(header);
           if (key && key.trim() !== '') {
@@ -168,33 +180,57 @@ export const useProjectImportWithCreation = () => {
             const processedValue = parseValue(originalValue);
             dynamicData[key] = processedValue;
             
-            console.log(`  ${header} -> ${key}: "${originalValue}" -> "${processedValue}"`);
+            console.log(`  "${header}" -> "${key}": "${originalValue}" -> "${processedValue}"`);
           }
         }
 
-        // Definir apenas os campos obrigatórios do banco com valores padrão
+        // CORREÇÃO CRÍTICA: Mapear valores específicos para campos obrigatórios
+        const getValueFromRow = (possibleKeys: string[]) => {
+          for (const key of possibleKeys) {
+            if (row[key] !== undefined && row[key] !== null && row[key] !== '') {
+              return parseValue(row[key]);
+            }
+          }
+          return null;
+        };
+
+        const descricao = getValueFromRow(['DESCRIÇÃO', 'DESCRICAO', 'ITEM']) || 'Item importado';
+        const qtd = getValueFromRow(['QTD', 'QUANTIDADE']) || 1;
+        const unidade = getValueFromRow(['UNIDADE', 'UNIT']) || '';
+        const mat_uni_pr = getValueFromRow(['MAT UNI - PR (R$)', 'MAT UNI PR', 'MATERIAL UNITARIO PRECO']) || 0;
+        const cc_mat_uni = getValueFromRow(['CC MAT UNI (R$)', 'CC MAT UNI', 'CC_MAT_UNI']) || 0;
+        const cc_mat_total = getValueFromRow(['CC MAT TOTAL (R$)', 'CC MAT TOTAL', 'CC_MAT_TOTAL']) || 0;
+        const vlr_total_estimado = getValueFromRow(['VLR. TOTAL ESTIMADO', 'VLR TOTAL ESTIMADO', 'VALOR TOTAL ESTIMADO']) || 0;
+
+        console.log('Valores mapeados:');
+        console.log(`  descricao: "${descricao}"`);
+        console.log(`  qtd: ${qtd}`);
+        console.log(`  cc_mat_uni: ${cc_mat_uni}`);
+        console.log(`  cc_mat_total: ${cc_mat_total}`);
+        console.log(`  vlr_total_estimado: ${vlr_total_estimado}`);
+
         const item = {
           project_id: newProject.id,
-          descricao: parseValue(row['DESCRIÇÃO'] || row['DESCRICAO'] || row['ITEM'] || '') || 'Item importado',
-          qtd: 1, // Valor padrão
-          unidade: parseValue(row['UNIDADE'] || row['UNIT'] || '') || '',
-          mat_uni_pr: 0, // Valor padrão
-          cc_mat_uni: 0, // Valor padrão
-          cc_mat_total: 0, // Valor padrão
-          cc_mo_uni: 0, // Valor padrão
-          cc_mo_total: 0, // Valor padrão
-          ipi: 0, // Valor padrão
-          cc_pis_cofins: 0, // Valor padrão
-          cc_icms_pr: 0, // Valor padrão
-          cc_icms_revenda: 0, // Valor padrão
-          cc_lucro_porcentagem: 0, // Valor padrão
-          cc_lucro_valor: 0, // Valor padrão
-          cc_encargos_valor: 0, // Valor padrão
-          cc_total: 0, // Valor padrão
-          vlr_total_estimado: 0, // Valor padrão
-          vlr_total_venda: 0, // Valor padrão
-          distribuidor: '',
-          dynamic_data: dynamicData // TODOS os dados ficam aqui
+          descricao: String(descricao),
+          qtd: Number(qtd) || 1,
+          unidade: String(unidade),
+          mat_uni_pr: Number(mat_uni_pr) || 0,
+          cc_mat_uni: Number(cc_mat_uni) || 0,
+          cc_mat_total: Number(cc_mat_total) || 0,
+          cc_mo_uni: 0,
+          cc_mo_total: 0,
+          ipi: 0,
+          cc_pis_cofins: 0,
+          cc_icms_pr: 0,
+          cc_icms_revenda: 0,
+          cc_lucro_porcentagem: 0,
+          cc_lucro_valor: 0,
+          cc_encargos_valor: 0,
+          cc_total: 0,
+          vlr_total_estimado: Number(vlr_total_estimado) || 0,
+          vlr_total_venda: 0,
+          distribuidor: getValueFromRow(['DISTRIBUIDOR']) || '',
+          dynamic_data: dynamicData
         };
 
         console.log(`Item final linha ${rowIndex + 1}:`, item);
@@ -203,13 +239,19 @@ export const useProjectImportWithCreation = () => {
 
       console.log('Total de itens a inserir:', itemsToInsert.length);
 
-      const { error: itemsError } = await supabase.from('project_items').insert(itemsToInsert);
+      const { data: insertedItems, error: itemsError } = await supabase
+        .from('project_items')
+        .insert(itemsToInsert)
+        .select();
+
       if (itemsError) {
         console.error('Erro ao inserir itens:', itemsError);
         throw new Error(`Erro ao inserir itens: ${itemsError.message}`);
       }
 
       console.log('=== IMPORTAÇÃO CONCLUÍDA COM SUCESSO ===');
+      console.log(`${itemsToInsert.length} itens inseridos`);
+      console.log('Primeiros itens inseridos:', insertedItems?.slice(0, 2));
 
       toast({
         title: "Projeto importado com sucesso!",
