@@ -13,6 +13,7 @@ import { useUnreadMessages } from '@/hooks/useUnreadMessages';
 import { NotificationBadge } from '@/components/ui/notification-badge';
 import { usePagination } from '@/hooks/usePagination';
 import { ProjectPagination } from '@/components/ui/project-pagination';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 interface Project {
   id: string;
@@ -34,6 +35,8 @@ const CollaboratorDashboard = ({ user }: CollaboratorDashboardProps) => {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+  const [projectToViewDescription, setProjectToViewDescription] = useState<Project | null>(null);
+  const [showViewDescriptionDialog, setShowViewDescriptionDialog] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const { toast } = useToast();
   const { unreadCounts, markProjectMessagesAsRead } = useUnreadMessages(user);
@@ -266,9 +269,26 @@ const CollaboratorDashboard = ({ user }: CollaboratorDashboardProps) => {
                             />
                           </div>
                           {project.description && (
-                            <p className="text-sm text-gray-600 mt-2 line-clamp-2">
-                              {project.description}
-                            </p>
+                            <div className="mt-2">
+                              <p className="text-sm text-gray-600 line-clamp-2 max-w-md">
+                                {project.description.length > 25 
+                                  ? `${project.description.substring(0, 25)}...` 
+                                  : project.description}
+                              </p>
+                              {project.description.length > 25 && (
+                                <Button 
+                                  variant="link" 
+                                  className="text-xs p-0 h-auto mt-1 text-blue-600"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setProjectToViewDescription(project);
+                                    setShowViewDescriptionDialog(true);
+                                  }}
+                                >
+                                  Leia mais
+                                </Button>
+                              )}
+                            </div>
                           )}
                         </div>
                         <div className="space-y-2 text-sm text-gray-600">
@@ -313,6 +333,27 @@ const CollaboratorDashboard = ({ user }: CollaboratorDashboardProps) => {
           </CardContent>
         </Card>
       </main>
+
+      {/* View Description Dialog */}
+      <Dialog open={showViewDescriptionDialog} onOpenChange={setShowViewDescriptionDialog}>
+        <DialogContent className="max-w-2xl w-full">
+          <DialogHeader>
+            <DialogTitle>Descrição do Projeto</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="max-h-[60vh] overflow-y-auto p-2">
+              <p className="text-sm text-gray-600 whitespace-pre-wrap break-all">
+                {projectToViewDescription?.description}
+              </p>
+            </div>
+            <div className="flex justify-end">
+              <Button variant="outline" onClick={() => setShowViewDescriptionDialog(false)}>
+                Fechar
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

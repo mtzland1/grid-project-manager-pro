@@ -50,6 +50,8 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
   const [renameProjectName, setRenameProjectName] = useState('');
   const [projectToRename, setProjectToRename] = useState<Project | null>(null);
   const [projectToEditDescription, setProjectToEditDescription] = useState<Project | null>(null);
+  const [projectToViewDescription, setProjectToViewDescription] = useState<Project | null>(null);
+  const [showViewDescriptionDialog, setShowViewDescriptionDialog] = useState(false);
   const [editDescription, setEditDescription] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [showPermissions, setShowPermissions] = useState(false);
@@ -835,9 +837,26 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
               )}
             </div>
             {project.description && (
-              <p className="text-sm text-gray-600 mt-2 line-clamp-2 max-w-md">
-                {project.description}
-              </p>
+              <div className="mt-2">
+                <p className="text-sm text-gray-600 line-clamp-2 max-w-md">
+                  {project.description.length > 25 
+                    ? `${project.description.substring(0, 25)}...` 
+                    : project.description}
+                </p>
+                {project.description.length > 25 && (
+                  <Button 
+                    variant="link" 
+                    className="text-xs p-0 h-auto mt-1 text-blue-600"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setProjectToViewDescription(project);
+                      setShowViewDescriptionDialog(true);
+                    }}
+                  >
+                    Leia mais
+                  </Button>
+                )}
+              </div>
             )}
             <p className="text-sm text-gray-500 mt-2">
               Criado em: {new Date(project.created_at).toLocaleDateString('pt-BR')}
@@ -1211,6 +1230,27 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
               </Button>
               <Button onClick={handleUpdateDescription}>
                 Salvar
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* View Description Dialog */}
+      <Dialog open={showViewDescriptionDialog} onOpenChange={setShowViewDescriptionDialog}>
+        <DialogContent className="max-w-2xl w-full">
+          <DialogHeader>
+            <DialogTitle>Descrição do Projeto</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="max-h-[60vh] overflow-y-auto p-2">
+              <p className="text-sm text-gray-600 whitespace-pre-wrap break-all">
+                {projectToViewDescription?.description}
+              </p>
+            </div>
+            <div className="flex justify-end">
+              <Button variant="outline" onClick={() => setShowViewDescriptionDialog(false)}>
+                Fechar
               </Button>
             </div>
           </div>
