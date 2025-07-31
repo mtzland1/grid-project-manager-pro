@@ -178,11 +178,23 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
       });
       
       const processedRows = (data || []).map(item => {
+        // Primeiro mesclar dynamic_data, depois sobrescrever com colunas estáticas
+        const dynamicData = (item.dynamic_data as Record<string, any>) || {};
         const mergedData = {
-          ...item,
-          distribuidor: item.distribuidor || '',
-          ...((item.dynamic_data as Record<string, any>) || {})
+          ...dynamicData,  // Dados dinâmicos primeiro
+          ...item,         // Dados estáticos sobrescrevem os dinâmicos
+          distribuidor: item.distribuidor || ''
         };
+        
+        // Log específico para verificar conflito de descrição
+        if (dynamicData.descricao && item.descricao) {
+          console.log('⚠️ CONFLITO DETECTADO - Coluna descricao:', {
+            id: item.id,
+            staticDescricao: item.descricao,
+            dynamicDescricao: dynamicData.descricao,
+            finalDescricao: mergedData.descricao
+          });
+        }
         
         console.log('🔄 Processando item:', {
           id: item.id,
@@ -257,11 +269,12 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
           setRows(prevRows => {
             const exists = prevRows.some(row => row.id === newItem.id);
             if (!exists) {
-              // Mesclar dados estáticos com dynamic_data
+              // Primeiro mesclar dynamic_data, depois sobrescrever com colunas estáticas
+              const dynamicData = (newItem.dynamic_data as Record<string, any>) || {};
               const mergedData = {
-                ...newItem,
-                distribuidor: newItem.distribuidor || '',
-                ...((newItem.dynamic_data as Record<string, any>) || {})
+                ...dynamicData,  // Dados dinâmicos primeiro
+                ...newItem,      // Dados estáticos sobrescrevem os dinâmicos
+                distribuidor: newItem.distribuidor || ''
               };
               
               console.log('✅ Adicionando novo item ao estado:', {
@@ -309,11 +322,12 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
               const updatedRows = [...prevRows];
               const rowIndex = updatedRows.findIndex(row => row.id === updatedItem.id);
               if (rowIndex !== -1) {
-                // Mesclar dados estáticos com dynamic_data
+                // Primeiro mesclar dynamic_data, depois sobrescrever com colunas estáticas
+                const dynamicData = (updatedItem.dynamic_data as Record<string, any>) || {};
                 const mergedData = {
-                  ...updatedItem,
-                  distribuidor: updatedItem.distribuidor || '',
-                  ...((updatedItem.dynamic_data as Record<string, any>) || {})
+                  ...dynamicData,     // Dados dinâmicos primeiro
+                  ...updatedItem,     // Dados estáticos sobrescrevem os dinâmicos
+                  distribuidor: updatedItem.distribuidor || ''
                 };
                 
                 console.log('✅ Atualizando linha via realtime:', {
@@ -490,7 +504,10 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
                             'cc_mat_uni', 'cc_mat_total', 'cc_mo_uni', 'cc_mo_total', 'ipi', 'st',
                             'cc_pis_cofins', 'cc_icms_pr', 'cc_icms_revenda', 'cc_lucro_porcentagem', 
                             'cc_lucro_valor', 'cc_encargos_valor', 'cc_total', 'vlr_total_venda', 
-                            'vlr_total_estimado', 'vlr_unit_estimado', 'created_at', 'updated_at', 'distribuidor'];
+                            'vlr_total_estimado', 'vlr_unit_estimado', 'created_at', 'updated_at', 'distribuidor',
+                            'reanalise_escopo', 'prioridade_compra', 'reanalise_mo', 'conferencia_estoque',
+                            'a_comprar', 'comprado', 'previsao_chegada', 'expedicao', 'cronograma_inicio',
+                            'data_medicoes', 'data_conclusao', 'manutencao', 'status_global'];
 
       // Separar colunas estáticas das dinâmicas
       const staticUpdates: any = {};
@@ -551,10 +568,12 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
 
       // Atualizar estado local com dados do servidor
       if (data) {
+        // Primeiro mesclar dynamic_data, depois sobrescrever com colunas estáticas
+        const dynamicData = (data.dynamic_data as Record<string, any>) || {};
         const mergedData = {
-          ...data,
-          distribuidor: data.distribuidor || '',
-          ...((data.dynamic_data as Record<string, any>) || {})
+          ...dynamicData,  // Dados dinâmicos primeiro
+          ...data,         // Dados estáticos sobrescrevem os dinâmicos
+          distribuidor: data.distribuidor || ''
         };
         
         console.log('💾 Atualizando estado local após salvar:', {
@@ -944,19 +963,16 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
                           
                           {visibleColumns.map((column) => {
                             const canEditThisColumn = canEditColumn(column.column_key);
-                            const value = row[column.column_key as keyof ProjectRow];
                             
-                            // Debug log para verificar permissões e valores
-                            if (editingRow === row.id) {
-                              console.log(`Column ${column.column_key}:`, {
-                                canEdit: canEditThisColumn,
-                                userRole,
-                                permissions: permissions,
-                                columnPermission: permissions.columnPermissions[column.column_key],
-                                value: value,
-                                rowData: row,
-                                editedData: editedData[row.id]
-                              });
+                            // Para colunas estáticas (como descricao), usar diretamente a propriedade da linha
+                            // Para colunas dinâmicas, usar o valor do dynamic_data
+                            let value;
+                            if (column.is_system_column && column.column_key in row && column.column_key !== 'dynamic_data') {
+                              // Coluna estática - usar valor direto da linha
+                              value = row[column.column_key as keyof ProjectRow];
+                            } else {
+                              // Coluna dinâmica - usar valor do dynamic_data ou propriedade mesclada
+                              value = row[column.column_key as keyof ProjectRow];
                             }
                             
                             // Debug específico para coluna descrição
@@ -965,8 +981,10 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
                                 rowId: row.id,
                                 isEditing: editingRow === row.id,
                                 canEdit: canEditThisColumn,
-                                originalValue: row.descricao,
-                                dynamicValue: row[column.column_key],
+                                isSystemColumn: column.is_system_column,
+                                staticValue: row.descricao,
+                                dynamicValue: (row.dynamic_data as any)?.descricao,
+                                mergedValue: row[column.column_key],
                                 editedValue: editedData[row.id]?.[column.column_key],
                                 finalValue: value
                               });
