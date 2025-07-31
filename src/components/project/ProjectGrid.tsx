@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowLeft, Plus, Save, Trash2, Edit, Search, Download, MessageCircle, MoreVertical } from 'lucide-react';
+import { ArrowLeft, Plus, Save, Trash2, Edit, Search, Download, MessageCircle, MoreVertical, X } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useUserPermissions } from '@/hooks/useUserPermissions';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
@@ -82,11 +82,22 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
   const [editingRow, setEditingRow] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [showChat, setShowChat] = useState(false);
+  const [editedData, setEditedData] = useState<Record<string, any>>({});
+  const [isUpdating, setIsUpdating] = useState(false);
   const { toast } = useToast();
   const { exportProjectToExcel, isExporting } = useExcelExport();
   
   // Usar hook de permissões
   const { permissions, canViewColumn, canEditColumn } = useUserPermissions(project.id);
+  
+  // Debug log para verificar permissões carregadas
+  useEffect(() => {
+    console.log('ProjectGrid permissions loaded:', {
+      userRole,
+      permissions,
+      projectId: project.id
+    });
+  }, [permissions, userRole, project.id]);
 
   const defaultRow: Omit<ProjectRow, 'id' | 'project_id'> = {
     descricao: '',
@@ -135,14 +146,21 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
 
   const fetchRows = async () => {
     try {
+      console.log('🔄 Iniciando fetchRows para projeto:', project.id);
+      console.log('⏰ Timestamp:', new Date().toISOString());
+      
+      // Verificar status da conexão com Supabase
+      const session = await supabase.auth.getSession();
+      console.log('🔐 Status da sessão:', session.data.session ? 'Autenticado' : 'Não autenticado');
+      
       const { data, error } = await supabase
         .from('project_items')
         .select('*')
         .eq('project_id', project.id)
-        .order('created_at', { ascending: true });
+        .order('id', { ascending: true });
 
       if (error) {
-        console.error('Error fetching rows:', error);
+        console.error('❌ Error fetching rows:', error);
         toast({
           title: "Erro ao carregar dados",
           description: error.message,
@@ -152,11 +170,32 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
       }
 
       // Merge static columns with dynamic data
-      setRows((data || []).map(item => ({
-        ...item,
-        distribuidor: item.distribuidor || '',
-        ...((item.dynamic_data as Record<string, any>) || {})
-      })));
+      console.log('📥 Dados carregados do banco:', {
+        projectId: project.id,
+        totalItems: data?.length || 0,
+        rawData: data,
+        timestamp: new Date().toISOString()
+      });
+      
+      const processedRows = (data || []).map(item => {
+        const mergedData = {
+          ...item,
+          distribuidor: item.distribuidor || '',
+          ...((item.dynamic_data as Record<string, any>) || {})
+        };
+        
+        console.log('🔄 Processando item:', {
+          id: item.id,
+          originalItem: item,
+          dynamicData: item.dynamic_data,
+          mergedData: mergedData
+        });
+        
+        return calculateRow(mergedData);
+      });
+      
+      setRows(processedRows);
+      console.log('✅ Dados carregados e processados:', processedRows.length, 'itens');
     } catch (err) {
       console.error('Error fetching rows:', err);
       toast({
@@ -178,6 +217,7 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
     fetchRows();
     
     // Setup realtime subscription for columns
+    console.log('🔗 Configurando subscrição realtime para colunas do projeto:', project.id);
     const columnsChannel = supabase
       .channel(`project-columns-${project.id}`)
       .on(
@@ -188,46 +228,165 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
           table: 'project_columns',
           filter: `project_id=eq.${project.id}`,
         },
-        () => {
+        (payload) => {
+          console.log('📊 Mudança detectada nas colunas:', payload);
           // Recarregar colunas quando houver mudanças
           loadProjectData();
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log('📡 Status da subscrição de colunas:', status);
+      });
 
-    // Setup realtime subscription for project items (rows)
+    // Setup realtime subscription for project items (rows) - INSERT, UPDATE e DELETE
+    console.log('🔗 Configurando subscrição realtime para itens do projeto:', project.id);
     const itemsChannel = supabase
       .channel(`project-items-${project.id}`)
       .on(
         'postgres_changes',
         {
-          event: '*',
+          event: 'INSERT',
           schema: 'public',
           table: 'project_items',
           filter: `project_id=eq.${project.id}`,
         },
-        () => {
-          // Recarregar dados quando houver mudanças
-          fetchRows();
+        (payload) => {
+          console.log('➕ Novo item inserido via realtime:', payload.new);
+          const newItem = payload.new as ProjectRow;
+          
+          setRows(prevRows => {
+            const exists = prevRows.some(row => row.id === newItem.id);
+            if (!exists) {
+              // Mesclar dados estáticos com dynamic_data
+              const mergedData = {
+                ...newItem,
+                distribuidor: newItem.distribuidor || '',
+                ...((newItem.dynamic_data as Record<string, any>) || {})
+              };
+              
+              console.log('✅ Adicionando novo item ao estado:', {
+                id: newItem.id,
+                originalItem: newItem,
+                dynamicData: newItem.dynamic_data,
+                mergedData: mergedData
+              });
+              
+              return [...prevRows, calculateRow(mergedData)];
+            }
+            
+            console.log('⚠️ Item já existe, ignorando inserção:', newItem.id);
+            return prevRows;
+          });
         }
       )
-      .subscribe();
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'project_items',
+          filter: `project_id=eq.${project.id}`,
+        },
+        (payload) => {
+          console.log('🔄 Item updated via realtime:', {
+            old: payload.old,
+            new: payload.new,
+            eventType: payload.eventType,
+            timestamp: new Date().toISOString()
+          });
+          const updatedItem = payload.new as ProjectRow;
+          
+          // Verificar se a linha está sendo editada antes de atualizar
+          setEditingRow(currentEditingRow => {
+            if (currentEditingRow === updatedItem.id) {
+              // Se está editando esta linha, não atualiza os dados
+              console.log('⚠️ Linha sendo editada, ignorando atualização realtime:', updatedItem.id);
+              return currentEditingRow;
+            }
+            
+            // Se não está editando, atualiza os dados
+            setRows(prevRows => {
+              const updatedRows = [...prevRows];
+              const rowIndex = updatedRows.findIndex(row => row.id === updatedItem.id);
+              if (rowIndex !== -1) {
+                // Mesclar dados estáticos com dynamic_data
+                const mergedData = {
+                  ...updatedItem,
+                  distribuidor: updatedItem.distribuidor || '',
+                  ...((updatedItem.dynamic_data as Record<string, any>) || {})
+                };
+                
+                console.log('✅ Atualizando linha via realtime:', {
+                  id: updatedItem.id,
+                  mergedData: mergedData
+                });
+                
+                updatedRows[rowIndex] = calculateRow(mergedData, true);
+              }
+              return updatedRows;
+            });
+            
+            return currentEditingRow;
+          });
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'DELETE',
+          schema: 'public',
+          table: 'project_items',
+          filter: `project_id=eq.${project.id}`,
+        },
+        (payload) => {
+          console.log('🗑️ Item deletado via realtime:', payload.old);
+          const deletedItem = payload.old as ProjectRow;
+          setRows(prevRows => prevRows.filter(row => row.id !== deletedItem.id));
+        }
+      )
+      .subscribe((status) => {
+        console.log('📡 Status da subscrição de itens:', status);
+      });
 
     return () => {
+      console.log('🔌 Removendo subscrições realtime para projeto:', project.id);
       supabase.removeChannel(columnsChannel);
       supabase.removeChannel(itemsChannel);
     };
   }, [project.id]);
 
-  const calculateRow = (row: ProjectRow): ProjectRow => {
+  const calculateRow = (row: ProjectRow, skipCalculations: boolean = false): ProjectRow => {
+    // Se skipCalculations for true, retorna a linha sem recalcular
+    // Isso evita sobrescrever valores editados manualmente
+    if (skipCalculations) {
+      return row;
+    }
+    
     const qtd = row.qtd || 0;
     const ccMoUni = row.cc_mo_uni || 0;
-
-    // Only calculate cc_mo_total if cc_mo_uni exists
-    // cc_mat_uni and cc_mat_total should come from imported data
+    const ccMatUni = row.cc_mat_uni || 0;
+    const matUniPr = row.mat_uni_pr || 0;
+    const ipi = row.ipi || 0;
+    const st = row.st || 0;
+    
+    // Calcular cc_mo_total
+    const ccMoTotal = ccMoUni * qtd;
+    
+    // Calcular cc_mat_total se necessário
+    const ccMatTotal = ccMatUni * qtd;
+    
+    // Calcular vlr_unit_estimado
+    const vlrUnitEstimado = matUniPr + ipi + st;
+    
+    // Calcular vlr_total_estimado
+    const vlrTotalEstimado = vlrUnitEstimado * qtd;
+    
     return {
       ...row,
-      cc_mo_total: ccMoUni * qtd,
+      cc_mo_total: ccMoTotal,
+      cc_mat_total: ccMatTotal,
+      vlr_unit_estimado: vlrUnitEstimado,
+      vlr_total_estimado: vlrTotalEstimado
     };
   };
 
@@ -288,16 +447,17 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
     }
   };
 
-  const handleUpdateRow = async (rowId: string, updates: Partial<ProjectRow>) => {
-    console.log('Starting update for row:', rowId, 'with updates:', updates);
+  const handleSaveRow = async (rowId: string) => {
+    if (isUpdating) return;
+    
+    setIsUpdating(true);
     
     try {
-      // Verificação de permissão simplificada
+      // Verificação de permissão
       const isAdmin = permissions.role === 'admin' || permissions.projectRole === 'admin';
       const isCollaborator = permissions.role === 'collaborator' || permissions.projectRole === 'collaborator';
       
       if (!isAdmin && !isCollaborator) {
-        console.log('User does not have permission to edit');
         toast({
           title: "Acesso negado",
           description: "Você não tem permissão para editar",
@@ -306,12 +466,31 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
         return;
       }
       
+      const updates = editedData[rowId] || {};
+      
+      console.log('💾 Iniciando salvamento:', {
+        rowId,
+        updates,
+        timestamp: new Date().toISOString()
+      });
+      
+      if (Object.keys(updates).length === 0) {
+        console.log('⚠️ Nenhuma alteração para salvar');
+        setEditingRow(null);
+        setEditedData(prev => {
+          const newData = { ...prev };
+          delete newData[rowId];
+          return newData;
+        });
+        return;
+      }
+
       // Colunas estáticas do sistema
       const staticColumns = ['id', 'project_id', 'descricao', 'qtd', 'unidade', 'mat_uni_pr', 'desconto', 
-                            'cc_mat_uni', 'cc_mat_total', 'cc_mo_uni', 'cc_mo_total', 'ipi', 'cc_pis_cofins',
-                            'cc_icms_pr', 'cc_icms_revenda', 'cc_lucro_porcentagem', 'cc_lucro_valor', 
-                            'cc_encargos_valor', 'cc_total', 'vlr_total_venda', 'vlr_total_estimado', 
-                            'created_at', 'updated_at', 'distribuidor'];
+                            'cc_mat_uni', 'cc_mat_total', 'cc_mo_uni', 'cc_mo_total', 'ipi', 'st',
+                            'cc_pis_cofins', 'cc_icms_pr', 'cc_icms_revenda', 'cc_lucro_porcentagem', 
+                            'cc_lucro_valor', 'cc_encargos_valor', 'cc_total', 'vlr_total_venda', 
+                            'vlr_total_estimado', 'vlr_unit_estimado', 'created_at', 'updated_at', 'distribuidor'];
 
       // Separar colunas estáticas das dinâmicas
       const staticUpdates: any = {};
@@ -324,9 +503,6 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
           dynamicUpdates[key] = value;
         }
       });
-
-      console.log('Static updates:', staticUpdates);
-      console.log('Dynamic updates:', dynamicUpdates);
 
       // Preparar dados para atualização
       const updateData: any = { ...staticUpdates };
@@ -343,16 +519,22 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
         updateData.dynamic_data = { ...currentDynamicData, ...dynamicUpdates };
       }
 
-      console.log('Final update data:', updateData);
-
       // Executar a atualização
-      const { error } = await supabase
+      console.log('🔄 Enviando atualização para o banco:', {
+        rowId,
+        updateData,
+        timestamp: new Date().toISOString()
+      });
+      
+      const { data, error } = await supabase
         .from('project_items')
-        .update(updateData)
-        .eq('id', rowId);
+        .update({ ...updateData, updated_at: new Date().toISOString() })
+        .eq('id', rowId)
+        .select()
+        .single();
 
       if (error) {
-        console.error('Error updating row:', error);
+        console.error('❌ Error updating row:', error);
         toast({
           title: "Erro ao salvar",
           description: error.message,
@@ -360,28 +542,87 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
         });
         return;
       }
+      
+      console.log('✅ Atualização bem-sucedida no banco:', {
+        rowId,
+        updatedData: data,
+        timestamp: new Date().toISOString()
+      });
 
-      console.log('Row updated successfully');
+      // Atualizar estado local com dados do servidor
+      if (data) {
+        const mergedData = {
+          ...data,
+          distribuidor: data.distribuidor || '',
+          ...((data.dynamic_data as Record<string, any>) || {})
+        };
+        
+        console.log('💾 Atualizando estado local após salvar:', {
+          rowId,
+          originalData: data,
+          mergedData: mergedData,
+          dynamicData: data.dynamic_data
+        });
+        
+        setRows(prevRows => {
+          const updatedRows = [...prevRows];
+          const rowIndex = updatedRows.findIndex(row => row.id === rowId);
+          if (rowIndex !== -1) {
+            // Não recalcular para preservar os valores editados
+            const newRow = calculateRow(mergedData, true);
+            updatedRows[rowIndex] = newRow;
+            
+            console.log('✅ Linha atualizada no estado local:', {
+              oldRow: prevRows[rowIndex],
+              newRow: newRow
+            });
+          }
+          return updatedRows;
+        });
+      }
 
-      // Atualizar estado local
-      setRows(rows.map(row => 
-        row.id === rowId 
-          ? calculateRow({ ...row, ...updates })
-          : row
-      ));
-
+      // Limpar dados de edição e sair do modo de edição
+      setEditingRow(null);
+      setEditedData(prev => {
+        const newData = { ...prev };
+        delete newData[rowId];
+        return newData;
+      });
+      
       toast({
-        title: "Dados salvos!",
+        title: "✅ Dados salvos!",
         description: "Alterações salvas com sucesso",
+        variant: "default",
       });
     } catch (err) {
       console.error('Error updating row:', err);
       toast({
-        title: "Erro inesperado",
+        title: "❌ Erro inesperado",
         description: "Não foi possível salvar os dados",
         variant: "destructive",
       });
+    } finally {
+      setIsUpdating(false);
     }
+  };
+
+  const handleCancelEdit = (rowId: string) => {
+    setEditingRow(null);
+    setEditedData(prev => {
+      const newData = { ...prev };
+      delete newData[rowId];
+      return newData;
+    });
+  };
+
+  const handleFieldChange = (rowId: string, field: string, value: any) => {
+    setEditedData(prev => ({
+      ...prev,
+      [rowId]: {
+        ...prev[rowId],
+        [field]: value
+      }
+    }));
   };
 
   const handleDeleteRow = async (rowId: string) => {
@@ -437,7 +678,9 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
       case 'currency':
         return new Intl.NumberFormat('pt-BR', {
           style: 'currency',
-          currency: 'BRL'
+          currency: 'BRL',
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2
         }).format(Number(value) || 0);
       case 'percentage':
         return `${Number(value) || 0}%`;
@@ -463,11 +706,11 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
   }), { cc_mat_total: 0, cc_mo_total: 0, vlr_total_estimado: 0, vlr_total_venda: 0 });
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50/30">
       {/* Header moderno com gradiente sutil */}
-      <header className="bg-card/95 backdrop-blur-sm shadow-sm border-b sticky top-0 z-50">
-        <div className="container mx-auto px-6">
-          <div className="flex justify-between items-center h-16">
+      <header className="bg-white/95 backdrop-blur-sm shadow-lg border-b border-slate-200/60 sticky top-0 z-50">
+        <div className="max-w-[98vw] mx-auto px-4">
+          <div className="flex justify-between items-center h-14">
             <div className="flex items-center space-x-4">
               <Button variant="ghost" onClick={onBack} className="hover:bg-accent">
                 <ArrowLeft className="h-4 w-4 mr-2" />
@@ -489,6 +732,17 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
             </div>
             
             <div className="flex items-center space-x-3">
+              <Button
+                onClick={() => {
+                  console.log('🔄 Forçando recarregamento dos dados...');
+                  fetchRows();
+                }}
+                variant="outline"
+                size="sm"
+                className="hover:bg-blue-50 hover:text-blue-600 transition-all duration-200"
+              >
+                🔄 Recarregar
+              </Button>
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
@@ -545,39 +799,56 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
 
 
       {/* Tabela moderna */}
-      <div className="container mx-auto px-6 py-6">
-        <Card className="shadow-lg border-0 bg-card/50 backdrop-blur-sm">
-          <CardHeader className="pb-4">
+      <div className="max-w-[98vw] mx-auto px-4 py-4">
+        <Card className="shadow-xl border border-slate-200/60 bg-white/95 backdrop-blur-sm">
+          <CardHeader className="pb-3 bg-gradient-to-r from-slate-50 to-blue-50/50 border-b border-slate-200/40">
             <div className="flex items-center justify-between">
-              <CardTitle className="text-lg font-semibold">Itens do Projeto</CardTitle>
+              <CardTitle className="text-xl font-bold text-slate-800 flex items-center">
+                <div className="w-1 h-6 bg-gradient-to-b from-blue-500 to-blue-600 rounded-full mr-3"></div>
+                Itens do Projeto
+              </CardTitle>
               <div className="flex items-center space-x-2">
-                <Badge variant="secondary" className="text-xs">
-                  {filteredRows.length} de {rows.length} itens
+              <Badge variant="secondary" className="text-xs bg-gray-100 text-gray-700">
+                📊 {filteredRows.length} de {rows.length} itens
+              </Badge>
+              {editingRow && (
+                <Badge variant="outline" className="text-xs animate-pulse bg-blue-50 text-blue-700 border-blue-200">
+                  ✏️ Editando linha...
                 </Badge>
-                {editingRow && (
-                  <Badge variant="outline" className="text-xs animate-pulse">
-                    Editando...
-                  </Badge>
-                )}
-              </div>
+              )}
+              {isUpdating && (
+                <Badge variant="outline" className="text-xs animate-pulse bg-green-50 text-green-700 border-green-200">
+                  💾 Salvando alterações...
+                </Badge>
+              )}
+            </div>
             </div>
           </CardHeader>
           
           <CardContent className="p-0">
-            <div className="rounded-lg border bg-background overflow-hidden">
-              <ScrollArea className="h-[calc(100vh-400px)]">
-                <Table>
-                  <TableHeader className="bg-muted/50">
-                    <TableRow>
-                      <TableHead className="w-24 font-semibold">Ações</TableHead>
+            <div className="rounded-lg border border-slate-200/60 bg-white overflow-hidden">
+              <ScrollArea className="h-[calc(100vh-280px)] scroll-area">
+                <Table className="text-sm">
+                  <TableHeader className="bg-gradient-to-r from-slate-100 to-blue-50 border-b-2 border-slate-200">
+                    <TableRow className="hover:bg-transparent">
+                      <TableHead className="w-28 font-bold text-slate-700 text-center sticky left-0 bg-gradient-to-r from-slate-100 to-blue-50 z-10 border-r border-slate-200">Ações</TableHead>
                       {visibleColumns.map((column) => (
                         <TableHead 
                           key={column.column_key}
-                          className="font-semibold text-foreground"
-                          style={{ width: column.column_width, minWidth: column.column_width }}
+                          className="font-bold text-slate-700 text-center border-r border-slate-200/60 last:border-r-0"
+                          style={{ 
+                  width: column.column_width === '120px' ? '160px' : column.column_width === '100px' ? '140px' : column.column_width === '80px' ? '120px' : column.column_width,
+                  minWidth: column.column_width === '120px' ? '160px' : column.column_width === '100px' ? '140px' : column.column_width === '80px' ? '120px' : column.column_width
+                }}
                         >
-                          <div className="flex items-center space-x-2">
-                            <span>{column.column_label}</span>
+                          <div className="flex items-center justify-center space-x-1">
+                            <span className="text-xs font-semibold">{column.column_label}</span>
+                            {column.column_type === 'currency' && (
+                              <span className="text-xs text-blue-600 font-medium">(R$)</span>
+                            )}
+                            {column.column_type === 'percentage' && (
+                              <span className="text-xs text-green-600 font-medium">(%)</span>
+                            )}
                           </div>
                         </TableHead>
                       ))}
@@ -611,85 +882,189 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
                       filteredRows.map((row, index) => (
                         <TableRow 
                           key={row.id} 
-                          className={`hover:bg-muted/30 transition-colors ${
-                            editingRow === row.id ? 'bg-primary/5 border-primary/20' : ''
+                          className={`hover:bg-slate-50/80 transition-all duration-200 border-b border-slate-100 ${
+                            editingRow === row.id ? 'bg-gradient-to-r from-blue-50/90 to-indigo-50/60 border-l-4 border-l-blue-500 shadow-lg ring-2 ring-blue-200/40 transform scale-[1.001]' : index % 2 === 0 ? 'bg-white' : 'bg-slate-50/30'
                           }`}
                         >
-                          <TableCell className="p-3">
-                            <div className="flex items-center space-x-1">
+                          <TableCell className="p-2 sticky left-0 bg-inherit z-10 border-r border-slate-200">
+                            <div className="flex items-center justify-center space-x-1">
                               {editingRow === row.id ? (
-                                <Button
-                                  size="sm"
-                                  variant="default"
-                                  onClick={() => setEditingRow(null)}
-                                  className="h-8 w-8 p-0"
-                                >
-                                  <Save className="h-3 w-3" />
-                                </Button>
+                                <div className="flex items-center space-x-1">
+                                  <Button
+                                      size="sm"
+                                      variant="default"
+                                      onClick={() => handleSaveRow(row.id)}
+                                      disabled={isUpdating}
+                                      className="h-7 px-2 bg-emerald-600 text-white hover:bg-emerald-700 transition-all duration-200 disabled:opacity-50 shadow-md text-xs font-medium"
+                                    >
+                                    {isUpdating ? (
+                                      <div className="animate-spin h-3 w-3 mr-1 border border-white border-t-transparent rounded-full" />
+                                    ) : (
+                                      <Save className="h-3 w-3 mr-1" />
+                                    )}
+                                    <span>{isUpdating ? 'Salvando...' : 'Salvar'}</span>
+                                  </Button>
+                                  <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => handleCancelEdit(row.id)}
+                                      disabled={isUpdating}
+                                      className="h-7 px-2 hover:bg-red-50 hover:text-red-600 hover:border-red-300 transition-all duration-200 disabled:opacity-50 text-xs font-medium"
+                                    >
+                                    <X className="h-3 w-3 mr-1" />
+                                    <span>Cancelar</span>
+                                  </Button>
+                                </div>
                               ) : (
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={() => setEditingRow(row.id)}
-                                  className="h-8 w-8 p-0 hover:bg-primary/10"
-                                >
-                                  <Edit className="h-3 w-3" />
-                                </Button>
+                                <div className="flex items-center justify-center space-x-1">
+                                  <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      onClick={() => setEditingRow(row.id)}
+                                      className="h-7 px-2 hover:bg-blue-50 hover:text-blue-600 transition-all duration-200 shadow-sm border border-transparent hover:border-blue-200 text-xs font-medium"
+                                    >
+                                    <Edit className="h-3 w-3 mr-1" />
+                                    <span>Editar</span>
+                                  </Button>
+                                  {permissions.canDelete && (
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      onClick={() => handleDeleteRow(row.id)}
+                                      className="h-7 px-2 hover:bg-red-50 hover:text-red-600 text-xs font-medium"
+                                    >
+                                      <Trash2 className="h-3 w-3 mr-1" />
+                                      <span>Excluir</span>
+                                    </Button>
+                                  )}
+                                </div>
                               )}
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => permissions.canDelete ? handleDeleteRow(row.id) : null}
-                                disabled={!permissions.canDelete}
-                                className="h-8 w-8 p-0 text-destructive hover:bg-destructive/10 hover:text-destructive disabled:opacity-30"
-                              >
-                                <Trash2 className="h-3 w-3" />
-                              </Button>
                             </div>
                           </TableCell>
                           
                           {visibleColumns.map((column) => {
                             const canEditThisColumn = canEditColumn(column.column_key);
                             const value = row[column.column_key as keyof ProjectRow];
+                            
+                            // Debug log para verificar permissões e valores
+                            if (editingRow === row.id) {
+                              console.log(`Column ${column.column_key}:`, {
+                                canEdit: canEditThisColumn,
+                                userRole,
+                                permissions: permissions,
+                                columnPermission: permissions.columnPermissions[column.column_key],
+                                value: value,
+                                rowData: row,
+                                editedData: editedData[row.id]
+                              });
+                            }
+                            
+                            // Debug específico para coluna descrição
+                            if (column.column_key === 'descricao') {
+                              console.log('🔍 Debug descrição:', {
+                                rowId: row.id,
+                                isEditing: editingRow === row.id,
+                                canEdit: canEditThisColumn,
+                                originalValue: row.descricao,
+                                dynamicValue: row[column.column_key],
+                                editedValue: editedData[row.id]?.[column.column_key],
+                                finalValue: value
+                              });
+                            }
 
                             return (
                               <TableCell 
                                 key={column.column_key}
-                                className="p-3"
-                                style={{ width: column.column_width, minWidth: column.column_width }}
+                                className="p-2 text-center border-r border-slate-100/60 last:border-r-0"
+                                style={{ 
+                                  width: column.column_width === '120px' ? '140px' : column.column_width === '100px' ? '120px' : column.column_width,
+                                  minWidth: column.column_width === '120px' ? '140px' : column.column_width === '100px' ? '120px' : column.column_width
+                                }}
                               >
                                 {editingRow === row.id && canEditThisColumn ? (
-                                  <Input
-                                    type={column.column_type === 'number' || column.column_type === 'currency' || column.column_type === 'percentage' ? 'number' : 'text'}
-                                    value={value || ''}
-                                    onChange={(e) => {
-                                      const newValue = column.column_type === 'number' || column.column_type === 'currency' || column.column_type === 'percentage' 
-                                        ? Number(e.target.value) || 0
-                                        : e.target.value;
-                                      
-                                      setRows(rows.map(r => 
-                                        r.id === row.id 
-                                          ? { ...r, [column.column_key]: newValue }
-                                          : r
-                                      ));
-                                    }}
-                                    onBlur={(e) => {
-                                      const newValue = column.column_type === 'number' || column.column_type === 'currency' || column.column_type === 'percentage' 
-                                        ? Number(e.target.value) || 0
-                                        : e.target.value;
-                                      handleUpdateRow(row.id, { [column.column_key]: newValue });
-                                    }}
-                                    className="h-8 border-primary/20 focus:border-primary"
-                                    step={column.column_type === 'currency' ? '0.01' : column.column_type === 'percentage' ? '0.1' : '1'}
-                                  />
-                                ) : (
-                                  <div className={`text-sm ${
-                                    column.column_type === 'currency' 
-                                      ? 'font-medium text-foreground'
-                                      : 'text-muted-foreground'
-                                  }`}>
-                                    {formatValue(value, column.column_type)}
+                                  <div className="relative group">
+                                    <Input
+                                      type={column.column_type === 'number' || column.column_type === 'currency' || column.column_type === 'percentage' ? 'number' : 'text'}
+                                      value={editedData[row.id]?.[column.column_key] !== undefined ? editedData[row.id][column.column_key] : (value ?? '')}
+                                      onChange={(e) => {
+                                        const newValue = column.column_type === 'number' || column.column_type === 'currency' || column.column_type === 'percentage' 
+                                          ? Number(e.target.value) || 0
+                                          : e.target.value;
+                                        
+                                        handleFieldChange(row.id, column.column_key, newValue);
+                                      }}
+                                      onBlur={(e) => {
+                                        const newValue = column.column_type === 'number' || column.column_type === 'currency' || column.column_type === 'percentage' 
+                                          ? Number(e.target.value) || 0
+                                          : e.target.value;
+                                        
+                                        handleFieldChange(row.id, column.column_key, newValue);
+                                      }}
+                                      onFocus={(e) => {
+                                        // Preservar posição do scroll ao focar
+                                        const scrollContainer = e.currentTarget.closest('.scroll-area');
+                                        if (scrollContainer) {
+                                          const currentScrollLeft = scrollContainer.scrollLeft;
+                                          setTimeout(() => {
+                                            scrollContainer.scrollLeft = currentScrollLeft;
+                                          }, 0);
+                                        }
+                                      }}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                          e.currentTarget.blur();
+                                        }
+                                        if (e.key === 'Escape') {
+                                          handleCancelEdit(row.id);
+                                        }
+                                      }}
+                                      className="h-8 text-sm border-blue-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200/50 transition-all duration-200 bg-white shadow-sm text-center w-full"
+                                      step={column.column_type === 'currency' ? '0.01' : column.column_type === 'percentage' ? '0.1' : '1'}
+                                      autoFocus={column.column_key === 'descricao'}
+                                      placeholder={`${column.column_label}...`}
+                                    />
+                                    {column.column_type === 'currency' && (
+                                      <span className="absolute right-2 top-1/2 transform -translate-y-1/2 text-xs text-blue-600 pointer-events-none font-medium">
+                                        R$
+                                      </span>
+                                    )}
+                                    {column.column_type === 'percentage' && (
+                                      <span className="absolute right-2 top-1/2 transform -translate-y-1/2 text-xs text-blue-600 pointer-events-none font-medium">
+                                        %
+                                      </span>
+                                    )}
+                                    <div className="absolute -bottom-1 left-0 right-0 h-0.5 bg-gradient-to-r from-blue-500 to-blue-400 transform scale-x-0 group-focus-within:scale-x-100 transition-transform duration-200"></div>
                                   </div>
+                                ) : (
+                                <div 
+                                  className="group cursor-pointer hover:bg-blue-50/70 transition-all duration-200 p-2 rounded border border-transparent hover:border-blue-200 hover:shadow-sm min-h-[32px] flex items-center justify-center"
+                                  onClick={(e) => {
+                                    if (canEditThisColumn) {
+                                      // Preservar posição do scroll antes de editar
+                                      const scrollContainer = e.currentTarget.closest('.scroll-area');
+                                      const currentScrollLeft = scrollContainer?.scrollLeft || 0;
+                                      
+                                      setEditingRow(row.id);
+                                      
+                                      // Restaurar posição do scroll após a edição começar
+                                      setTimeout(() => {
+                                        if (scrollContainer) {
+                                          scrollContainer.scrollLeft = currentScrollLeft;
+                                        }
+                                      }, 0);
+                                    }
+                                  }}
+                                  title={canEditThisColumn ? `✏️ Clique para editar ${column.column_label}` : 'Sem permissão para editar'}
+                                >
+                                  <div className="flex items-center justify-center relative w-full">
+                                    <span className="text-sm text-slate-700 font-medium break-words text-center">
+                                      {formatValue(value, column.column_type)}
+                                    </span>
+                                    {canEditThisColumn && (
+                                      <Edit className="h-3 w-3 text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity duration-200 absolute -top-1 -right-1 bg-white rounded-full p-0.5 shadow-sm" />
+                                    )}
+                                  </div>
+                                </div>
                                 )}
                               </TableCell>
                             );
@@ -703,8 +1078,41 @@ const ProjectGrid = ({ project, onBack, userRole }: ProjectGridProps) => {
             </div>
             
             {filteredRows.length > 0 && (
-              <div className="p-4 bg-muted/20 border-t text-xs text-muted-foreground flex items-center justify-end">
-                <span>{filteredRows.length} itens exibidos</span>
+              <div className="p-4 bg-muted/20 border-t">
+                <div className="bg-gradient-to-r from-blue-50/50 to-indigo-50/50 p-6 rounded-xl border border-blue-100 shadow-sm">
+                  <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center">
+                    📈 Resumo Financeiro
+                  </h3>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+                    <div className="text-center bg-white/60 p-4 rounded-lg border border-blue-100">
+                      <p className="text-sm text-blue-600 font-medium mb-1">CC MAT Total</p>
+                      <p className="text-xl font-bold text-blue-800">
+                        {formatValue(totals.cc_mat_total, 'currency')}
+                      </p>
+                    </div>
+                    <div className="text-center bg-white/60 p-4 rounded-lg border border-green-100">
+                      <p className="text-sm text-green-600 font-medium mb-1">CC MO Total</p>
+                      <p className="text-xl font-bold text-green-800">
+                        {formatValue(totals.cc_mo_total, 'currency')}
+                      </p>
+                    </div>
+                    <div className="text-center bg-white/60 p-4 rounded-lg border border-purple-100">
+                      <p className="text-sm text-purple-600 font-medium mb-1">Valor Estimado</p>
+                      <p className="text-xl font-bold text-purple-800">
+                        {formatValue(totals.vlr_total_estimado, 'currency')}
+                      </p>
+                    </div>
+                    <div className="text-center bg-white/60 p-4 rounded-lg border border-orange-100">
+                      <p className="text-sm text-orange-600 font-medium mb-1">Valor Venda</p>
+                      <p className="text-xl font-bold text-orange-800">
+                        {formatValue(totals.vlr_total_venda, 'currency')}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                <div className="text-xs text-muted-foreground flex items-center justify-end mt-4">
+                  <span>{filteredRows.length} itens exibidos</span>
+                </div>
               </div>
             )}
           </CardContent>

@@ -57,6 +57,7 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
   const [showPermissions, setShowPermissions] = useState(false);
   const [showUserManagement, setShowUserManagement] = useState(false);
   const [activeTab, setActiveTab] = useState('active');
+  const [userRole, setUserRole] = useState<'admin' | 'collaborator'>('collaborator');
   const { toast } = useToast();
   const { unreadCounts, markProjectMessagesAsRead } = useUnreadMessages(user);
 
@@ -142,8 +143,23 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
   };
 
   useEffect(() => {
+    loadUserRole();
     fetchProjects();
   }, []);
+
+  const loadUserRole = async () => {
+    try {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('user_id', user.id)
+        .single();
+      
+      setUserRole(profile?.role || 'collaborator');
+    } catch (error) {
+      console.error('Error loading user role:', error);
+    }
+  };
 
   const handleCreateProject = async () => {
     if (!newProjectName.trim()) {
@@ -185,10 +201,14 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
       setNewProjectDescription('');
       setShowCreateDialog(false);
       
-      setTimeout(() => {
-        fetchProjects();
-        setSelectedProject(data);
-      }, 500);
+      // Aguardar mais tempo para garantir que o trigger crie as colunas
+      setTimeout(async () => {
+        await fetchProjects();
+        // Aguardar um pouco mais antes de abrir o projeto
+        setTimeout(() => {
+          setSelectedProject(data);
+        }, 200);
+      }, 1000);
 
     } catch (err) {
       console.error('Error creating project:', err);
@@ -588,6 +608,14 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
     // Função para mapear tipo de dado com base no nome do header
     const mapColumnType = (headerName: string): string => {
       const upperHeader = headerName.toUpperCase();
+      
+      // Verificar se é uma das colunas específicas que não queremos (apenas as antigas indesejadas)
+      if (upperHeader === 'MINIIMO UNITARIO' || upperHeader === 'MINIMO UNITARIO' || 
+          upperHeader === 'MINIIMO TOTAL' || upperHeader === 'MINIMO TOTAL') {
+        // Retornamos um tipo especial que podemos filtrar depois
+        return 'ignored';
+      }
+      
       if (upperHeader.includes('PREÇO') || upperHeader.includes('VALOR') || 
           upperHeader.includes('TOTAL') || upperHeader.includes('UNITARIO') || 
           upperHeader.includes('CC') || upperHeader.includes('VLR') || 
@@ -628,11 +656,19 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
           console.warn(`Header vazio ou inválido encontrado: "${header}". Será ignorado.`);
           return null;
         }
+        
+        const columnType = mapColumnType(header);
+        // Ignorar colunas marcadas como 'ignored'
+        if (columnType === 'ignored') {
+          console.warn(`Ignorando coluna indesejada: ${header}`);
+          return null;
+        }
+        
         return {
           project_id: newProject.id,
           column_key: columnKey,
           column_label: header,
-          column_type: mapColumnType(header),
+          column_type: columnType,
           column_width: '150px',
           column_order: index,
           is_system_column: false,
@@ -670,6 +706,15 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
     const itemsToInsert = importedData.rows.map(row => {
       const dynamicData = {};
       importedData.headers.forEach(header => {
+        // Verificar se é uma coluna indesejada
+        const upperHeader = header.toUpperCase();
+        if (upperHeader === 'MINIIMO UNITARIO' || upperHeader === 'MINIMO UNITARIO' || 
+            upperHeader === 'MINIIMO TOTAL' || upperHeader === 'MINIMO TOTAL' || 
+            upperHeader === 'CC MO UNI' || upperHeader === 'CC MO TOTAL') {
+          console.warn(`Ignorando coluna indesejada no dynamic_data: "${header}"`);
+          return; // Pular esta coluna
+        }
+        
         const key = headerToKeyMap.get(header);
         // Verificamos se a chave existe e não é vazia antes de adicionar ao dynamicData
         if (key && key.trim() !== '') {
@@ -801,7 +846,7 @@ const AdminDashboard = ({ user }: AdminDashboardProps) => {
       <ProjectGrid 
         project={selectedProject} 
         onBack={handleBackToProjects}
-        userRole="admin" 
+        userRole={userRole} 
       />
     );
   }

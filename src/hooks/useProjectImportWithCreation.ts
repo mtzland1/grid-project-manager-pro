@@ -15,6 +15,58 @@ interface Project {
 // 1. Função para normalizar chaves de coluna de forma consistente
 const generateColumnKey = (label: string): string => {
   if (!label) return '';
+  
+  // Mapeamentos específicos para garantir compatibilidade com as colunas do trigger
+  const specificMappings: { [key: string]: string } = {
+    'MAT UNI - PR (R$)': 'mat_uni_pr',
+    'CC MAT UNI (R$)': 'cc_mat_uni', 
+    'CC MAT TOTAL (R$)': 'cc_mat_total',
+    'IPI (R$):': 'ipi',
+    'IPI': 'ipi',
+    'VLR. TOTAL ESTIMADO': 'vlr_total_estimado',
+    'VALOR TOTAL ESTIMADO': 'vlr_total_estimado',
+    'Reanalise escop': 'reanalise_escopo',
+    'Reanalise Escopo': 'reanalise_escopo', 
+    'Previsão de chegada': 'previsao_chegada',
+    'PREVISÃO DE CHEGADA': 'previsao_chegada',
+    'DESCRIÇÃO': 'descricao',
+    'ITEM': 'item',
+    'QTD': 'qtd',
+    'QUANTIDADE': 'qtd',
+    'UNIDADE': 'unidade',
+    'Desconto (%)': 'desconto',
+    'DESCONTO (%)': 'desconto',
+    'DISTRIBUIDOR': 'distribuidor',
+    'Prioridade compra': 'prioridade_compra',
+    'PRIORIDADE COMPRA': 'prioridade_compra',
+    'Reanalise MO': 'reanalise_mo',
+    'REANALISE MO': 'reanalise_mo',
+    'Conferencia estoque': 'conferencia_estoque',
+    'CONFERENCIA ESTOQUE': 'conferencia_estoque',
+    'A comprar': 'a_comprar',
+    'A COMPRAR': 'a_comprar',
+    'Comprado': 'comprado',
+    'COMPRADO': 'comprado',
+    'Expedição': 'expedicao',
+    'EXPEDIÇÃO': 'expedicao',
+    'Cronograma Inicio': 'cronograma_inicio',
+    'CRONOGRAMA INICIO': 'cronograma_inicio',
+    'Data medições': 'data_medicoes',
+    'DATA MEDIÇÕES': 'data_medicoes',
+    'Data Conclusão': 'data_conclusao',
+    'DATA CONCLUSÃO': 'data_conclusao',
+    'Manutenção': 'manutencao',
+    'MANUTENÇÃO': 'manutencao',
+    'Status Global': 'status_global',
+    'STATUS GLOBAL': 'status_global'
+  };
+  
+  // Verificar se existe um mapeamento específico
+  if (specificMappings[label]) {
+    return specificMappings[label];
+  }
+  
+  // Caso contrário, usar a normalização padrão
   return label
     .toLowerCase()
     .normalize('NFD')
@@ -27,7 +79,18 @@ const generateColumnKey = (label: string): string => {
 // 2. Função para mapear tipo de dado com base no nome do header
 const mapColumnType = (headerName: string): string => {
   const upperHeader = headerName.toUpperCase();
-  if (upperHeader.includes('PREÇO') || upperHeader.includes('VALOR') || upperHeader.includes('TOTAL') || upperHeader.includes('UNITARIO') || upperHeader.includes('CC') || upperHeader.includes('VLR') || upperHeader.includes('PV') || upperHeader.includes('MAT') || upperHeader.includes('MINIIMO') || upperHeader.includes('MINIMO')) {
+  
+  // Verificar se é uma das colunas específicas que não queremos (apenas as antigas indesejadas)
+  if (upperHeader === 'MINIIMO UNITARIO' || upperHeader === 'MINIMO UNITARIO' || 
+      upperHeader === 'MINIIMO TOTAL' || upperHeader === 'MINIMO TOTAL') {
+    // Retornamos um tipo especial que podemos filtrar depois
+    return 'ignored';
+  }
+  
+  if (upperHeader.includes('PREÇO') || upperHeader.includes('VALOR') || 
+      upperHeader.includes('TOTAL') || upperHeader.includes('UNITARIO') || 
+      upperHeader.includes('CC') || upperHeader.includes('VLR') || 
+      upperHeader.includes('PV') || upperHeader.includes('MAT')) {
     return 'currency';
   }
   if (upperHeader.includes('QTD') || upperHeader.includes('QUANTIDADE')) {
@@ -100,22 +163,23 @@ export const useProjectImportWithCreation = () => {
       // ETAPA 3: AGUARDAR um pouco para garantir que o trigger seja executado
       await new Promise(resolve => setTimeout(resolve, 100));
 
-      // ETAPA 4: DELETAR TODAS as colunas criadas pelo trigger (incluindo as indesejadas)
-      console.log('=== REMOVENDO COLUNAS PADRÃO DO TRIGGER ===');
-      const { error: deleteError } = await supabase
+      // ETAPA 4: Buscar colunas existentes criadas pelo trigger
+      console.log('=== VERIFICANDO COLUNAS EXISTENTES DO TRIGGER ===');
+      const { data: existingColumns, error: fetchError } = await supabase
         .from('project_columns')
-        .delete()
+        .select('column_key, column_label')
         .eq('project_id', newProject.id);
 
-      if (deleteError) {
-        console.error('Erro ao deletar colunas padrão:', deleteError);
-        throw new Error(`Erro ao limpar colunas padrão: ${deleteError.message}`);
+      if (fetchError) {
+        console.error('Erro ao buscar colunas existentes:', fetchError);
+        throw new Error(`Erro ao verificar colunas existentes: ${fetchError.message}`);
       }
       
-      console.log('Todas as colunas padrão foram removidas com sucesso');
+      const existingColumnKeys = new Set(existingColumns?.map(col => col.column_key) || []);
+      console.log('Colunas já existentes do trigger:', Array.from(existingColumnKeys));
 
-      // ETAPA 5: Criar APENAS as colunas que existem no CSV
-      console.log('=== CRIANDO COLUNAS BASEADAS NO CSV ===');
+      // ETAPA 5: Criar APENAS as colunas do CSV que NÃO existem ainda
+      console.log('=== CRIANDO COLUNAS ADICIONAIS BASEADAS NO CSV ===');
       const columnsToInsert = projectData.headers
         .map((header, index) => {
           if (!header || header.trim() === '') {
@@ -129,22 +193,36 @@ export const useProjectImportWithCreation = () => {
             return null;
           }
           
-          console.log(`Mapeando coluna: "${header}" -> "${key}" (tipo: ${mapColumnType(header)})`);
+          // Verificar se a coluna já existe (criada pelo trigger)
+          if (existingColumnKeys.has(key)) {
+            console.log(`Coluna "${header}" (${key}) já existe, pulando criação`);
+            return null;
+          }
+          
+          const columnType = mapColumnType(header);
+          // Ignorar colunas marcadas como 'ignored'
+          if (columnType === 'ignored') {
+            console.log(`Ignorando coluna indesejada: ${header}`);
+            return null;
+          }
+          
+          console.log(`Criando nova coluna: "${header}" -> "${key}" (tipo: ${columnType})`);
           
           return {
             project_id: newProject.id,
             column_key: key,
             column_label: header,
-            column_type: mapColumnType(header),
+            column_type: columnType,
             column_width: '150px',
-            column_order: index + 1,
+            column_order: (existingColumns?.length || 0) + index + 1,
             is_system_column: false
           };
         })
         .filter(col => col !== null);
 
-      console.log(`Criando ${columnsToInsert.length} colunas baseadas no CSV`);
-      console.log('Colunas que serão criadas:', columnsToInsert.map(col => `${col?.column_label} (${col?.column_key})`));
+      console.log(`Criando ${columnsToInsert.length} colunas adicionais baseadas no CSV`);
+      console.log('Novas colunas que serão criadas:', columnsToInsert.map(col => `${col?.column_label} (${col?.column_key})`));
+      console.log(`Total de colunas após importação: ${(existingColumns?.length || 0) + columnsToInsert.length}`);
 
       if (columnsToInsert.length > 0) {
         const { data: insertedColumns, error: columnsInsertError } = await supabase
@@ -157,20 +235,28 @@ export const useProjectImportWithCreation = () => {
           throw new Error(`Erro ao criar colunas: ${columnsInsertError.message}`);
         }
         
-        console.log(`${insertedColumns?.length} colunas criadas com sucesso`);
+        console.log(`${insertedColumns?.length} colunas adicionais criadas com sucesso`);
+        console.log(`Total de colunas no projeto: ${(existingColumns?.length || 0) + (insertedColumns?.length || 0)}`);
       }
 
-      // ETAPA 6: Preparar mapeamento de dados
+      // ETAPA 6: Preparar mapeamento de dados (incluindo colunas existentes)
       console.log('=== PREPARANDO MAPEAMENTO DE DADOS ===');
       const headerToKeyMap = new Map<string, string>();
+      
+      // Mapear headers do CSV
       projectData.headers.forEach(header => {
         if (header && header.trim() !== '') {
           const key = generateColumnKey(header);
           if (key) {
             headerToKeyMap.set(header, key);
-            console.log(`Mapeamento: "${header}" -> "${key}"`);
+            console.log(`Mapeamento CSV: "${header}" -> "${key}"`);
           }
         }
+      });
+      
+      // Também mapear colunas existentes do trigger para garantir que sejam incluídas
+      existingColumns?.forEach(col => {
+        console.log(`Coluna existente disponível: "${col.column_label}" (${col.column_key})`);
       });
 
       // ETAPA 7: Preparar e inserir itens com valores PRESERVADOS
@@ -179,11 +265,20 @@ export const useProjectImportWithCreation = () => {
         console.log(`\n--- Processando linha ${rowIndex + 1} ---`);
         console.log('Dados originais da linha:', row);
         
-        // Criar dynamic_data preservando TODOS os valores originais
+        // Criar dynamic_data preservando valores originais, exceto colunas indesejadas
         const dynamicData: { [key: string]: any } = {};
         
         for (const header of projectData.headers) {
           if (header && header.trim() !== '') {
+            // Verificar se é uma coluna indesejada
+            const upperHeader = header.toUpperCase();
+            if (upperHeader === 'MINIIMO UNITARIO' || upperHeader === 'MINIMO UNITARIO' || 
+                upperHeader === 'MINIIMO TOTAL' || upperHeader === 'MINIMO TOTAL' || 
+                upperHeader === 'CC MO UNI' || upperHeader === 'CC MO TOTAL') {
+              console.log(`  Ignorando coluna indesejada no dynamic_data: "${header}"`);
+              continue; // Pular esta coluna
+            }
+            
             const key = headerToKeyMap.get(header);
             if (key) {
               const originalValue = row[header];
@@ -205,35 +300,77 @@ export const useProjectImportWithCreation = () => {
           return null;
         };
 
-        // Mapear campos obrigatórios
+        // Mapear apenas campos obrigatórios para as colunas principais (evitar duplicação)
         const descricao = getValueFromRow(['DESCRIÇÃO', 'DESCRICAO', 'ITEM']) || 'Item importado';
         const qtd = getValueFromRow(['QTD', 'QUANTIDADE']) || 1;
         const unidade = getValueFromRow(['UNIDADE', 'UNIT']) || '';
+        const distribuidor = getValueFromRow(['DISTRIBUIDOR']) || '';
+        
+        // Campos financeiros importantes que devem estar nas colunas principais
         const mat_uni_pr = getValueFromRow(['MAT UNI - PR (R$)', 'MAT UNI PR', 'MATERIAL UNITARIO PRECO']) || 0;
+        const desconto = getValueFromRow(['Desconto (%)', 'DESCONTO (%)', 'DESCONTO']) || 0;
         const cc_mat_uni = getValueFromRow(['CC MAT UNI (R$)', 'CC MAT UNI', 'CC_MAT_UNI']) || 0;
         const cc_mat_total = getValueFromRow(['CC MAT TOTAL (R$)', 'CC MAT TOTAL', 'CC_MAT_TOTAL']) || 0;
+        const ipi = getValueFromRow(['IPI (R$):', 'IPI', 'IPI (R$)']) || 0;
         const vlr_total_estimado = getValueFromRow(['VLR. TOTAL ESTIMADO', 'VLR TOTAL ESTIMADO', 'VALOR TOTAL ESTIMADO']) || 0;
-        const distribuidor = getValueFromRow(['DISTRIBUIDOR']) || '';
+        
+        // Campos de controle de projeto que devem estar nas colunas principais
+        const reanalise_escopo = getValueFromRow(['Reanalise escop', 'Reanalise Escopo', 'REANALISE ESCOPO']) || null;
+        const prioridade_compra = getValueFromRow(['Prioridade compra', 'PRIORIDADE COMPRA']) || null;
+        const reanalise_mo = getValueFromRow(['Reanalise MO', 'REANALISE MO']) || null;
+        const conferencia_estoque = getValueFromRow(['Conferencia estoque', 'CONFERENCIA ESTOQUE']) || null;
+        const a_comprar = getValueFromRow(['A comprar', 'A COMPRAR']) || null;
+        const comprado = getValueFromRow(['Comprado', 'COMPRADO']) || null;
+        const previsao_chegada = getValueFromRow(['Previsão de chegada', 'PREVISÃO DE CHEGADA']) || null;
+        const expedicao = getValueFromRow(['Expedição', 'EXPEDIÇÃO']) || null;
+        const cronograma_inicio = getValueFromRow(['Cronograma Inicio', 'CRONOGRAMA INICIO']) || null;
+        const data_medicoes = getValueFromRow(['Data medições', 'DATA MEDIÇÕES']) || null;
+        const data_conclusao = getValueFromRow(['Data Conclusão', 'DATA CONCLUSÃO']) || null;
+        const manutencao = getValueFromRow(['Manutenção', 'MANUTENÇÃO']) || null;
+        const status_global = getValueFromRow(['Status Global', 'STATUS GLOBAL']) || null;
+
+        // Remover campos das colunas principais do dynamic_data para evitar duplicação
+        const fieldsInMainColumns = [
+          'descricao', 'qtd', 'unidade', 'distribuidor', 'mat_uni_pr', 'desconto', 
+          'cc_mat_uni', 'cc_mat_total', 'ipi', 'vlr_total_estimado',
+          'reanalise_escopo', 'prioridade_compra', 'reanalise_mo', 'conferencia_estoque',
+          'a_comprar', 'comprado', 'previsao_chegada', 'expedicao', 'cronograma_inicio',
+          'data_medicoes', 'data_conclusao', 'manutencao', 'status_global'
+        ];
+        
+        // Filtrar dynamic_data para remover campos que já estão nas colunas principais
+        const filteredDynamicData: { [key: string]: any } = {};
+        Object.keys(dynamicData).forEach(key => {
+          if (!fieldsInMainColumns.includes(key)) {
+            filteredDynamicData[key] = dynamicData[key];
+          }
+        });
 
         console.log('Valores mapeados para campos do banco:');
         console.log(`  descricao: "${descricao}"`);
         console.log(`  qtd: ${qtd}`);
+        console.log(`  mat_uni_pr: ${mat_uni_pr}`);
+        console.log(`  desconto: ${desconto}`);
         console.log(`  cc_mat_uni: ${cc_mat_uni}`);
+        console.log(`  cc_mat_total: ${cc_mat_total}`);
+        console.log(`  ipi: ${ipi}`);
         console.log(`  vlr_total_estimado: ${vlr_total_estimado}`);
-        console.log(`  dynamic_data:`, dynamicData);
+        console.log(`  reanalise_escopo: ${reanalise_escopo}`);
+        console.log(`  dynamic_data (filtrado):`, filteredDynamicData);
 
-        // Criar item final
+        // Criar item final com todos os campos mapeados
         const item = {
           project_id: newProject.id,
           descricao: String(descricao),
           qtd: Number(qtd) || 1,
           unidade: String(unidade),
           mat_uni_pr: Number(mat_uni_pr) || 0,
+          desconto: Number(desconto) || 0,
           cc_mat_uni: Number(cc_mat_uni) || 0,
           cc_mat_total: Number(cc_mat_total) || 0,
           cc_mo_uni: 0,
           cc_mo_total: 0,
-          ipi: 0,
+          ipi: Number(ipi) || 0,
           cc_pis_cofins: 0,
           cc_icms_pr: 0,
           cc_icms_revenda: 0,
@@ -244,7 +381,20 @@ export const useProjectImportWithCreation = () => {
           vlr_total_estimado: Number(vlr_total_estimado) || 0,
           vlr_total_venda: 0,
           distribuidor: String(distribuidor),
-          dynamic_data: dynamicData
+          reanalise_escopo: reanalise_escopo,
+          prioridade_compra: prioridade_compra,
+          reanalise_mo: reanalise_mo,
+          conferencia_estoque: conferencia_estoque,
+          a_comprar: a_comprar,
+          comprado: comprado,
+          previsao_chegada: previsao_chegada,
+          expedicao: expedicao,
+          cronograma_inicio: cronograma_inicio,
+          data_medicoes: data_medicoes,
+          data_conclusao: data_conclusao,
+          manutencao: manutencao,
+          status_global: status_global,
+          dynamic_data: filteredDynamicData
         };
 
         return item;

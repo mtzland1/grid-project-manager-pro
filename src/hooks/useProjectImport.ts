@@ -37,32 +37,182 @@ const readFileAs = <T extends 'text' | 'arrayBuffer'>(
  * Processa um conjunto de dados brutos (array de arrays) e os transforma em um array de objetos de linha,
  * aplicando a filtragem necessária (ex: coluna ITEM não pode ser vazia).
  */
+/**
+ * Converte valores monetários e percentuais de strings formatadas para números
+ */
+const parseNumericValue = (value: any, header: string): any => {
+  if (value === null || value === undefined || value === '') {
+    return '';
+  }
+  
+  const stringValue = String(value).trim();
+  
+  // Se já é um número, retorna como está
+  if (typeof value === 'number') {
+    return value;
+  }
+  
+  // Verifica se é uma coluna que deve conter valores numéricos
+  const headerUpper = header.toUpperCase();
+  const isNumericColumn = headerUpper.includes('R$') || 
+                         headerUpper.includes('%') || 
+                         headerUpper.includes('QTD') ||
+                         headerUpper.includes('TOTAL') ||
+                         headerUpper.includes('UNI') && (headerUpper.includes('MAT') || headerUpper.includes('MO') || headerUpper.includes('PV')) ||
+                         headerUpper.includes('IPI') ||
+                         headerUpper.includes('ST') ||
+                         headerUpper.includes('ESTIMADO');
+  
+  if (!isNumericColumn) {
+    return stringValue;
+  }
+  
+  // Remove formatação monetária e converte para número
+  let cleanValue = stringValue
+    .replace(/R\$\s*/g, '') // Remove R$ e espaços
+    .replace(/\s+/g, '') // Remove espaços extras
+    .replace(/-/g, '0') // Converte traços para zero
+    .replace(/%/g, ''); // Remove símbolo de porcentagem
+  
+  // Tratar separadores de milhares e decimais (formato brasileiro)
+  // Se tem vírgula seguida de exatamente 2 dígitos no final, é decimal
+  // Se tem vírgula em outras posições, é separador de milhares
+  if (cleanValue.includes(',')) {
+    const parts = cleanValue.split('.');
+    if (parts.length > 1) {
+      // Tem ponto e vírgula - formato: 123,456.78
+      cleanValue = cleanValue.replace(/,/g, ''); // Remove vírgulas (separadores de milhares)
+    } else {
+      // Só tem vírgula - pode ser decimal ou separador de milhares
+      const commaIndex = cleanValue.lastIndexOf(',');
+      const afterComma = cleanValue.substring(commaIndex + 1);
+      
+      if (afterComma.length === 2 && /^\d{2}$/.test(afterComma)) {
+        // Vírgula seguida de exatamente 2 dígitos - é decimal
+        cleanValue = cleanValue.replace(',', '.');
+      } else {
+        // Vírgula em outra posição - é separador de milhares
+        cleanValue = cleanValue.replace(/,/g, '');
+      }
+    }
+  }
+  
+  // Se ficou vazio após limpeza, retorna 0
+  if (cleanValue === '' || cleanValue === '.') {
+    return 0;
+  }
+  
+  // Tenta converter para número
+  const numericValue = parseFloat(cleanValue);
+  
+  // Se a conversão foi bem-sucedida, retorna o número
+  if (!isNaN(numericValue)) {
+    return numericValue;
+  }
+  
+  // Se não conseguiu converter, retorna o valor original
+  return stringValue;
+};
+
 const processAndFilterRows = (allRowsData: any[][], headers: string[]): ProjectRow[] => {
   const rows: ProjectRow[] = [];
-  const REQUIRED_COLUMN_NAME = 'ITEM'; // Centraliza a regra de negócio
+  
+  // Detectar onde termina a tabela principal
+  const validTableEnd = findTableEnd(allRowsData, headers);
+  const validRowsData = allRowsData.slice(0, validTableEnd);
+  
+  console.log(`=== PROCESSAMENTO DE LINHAS ===`);
+  console.log(`Total de linhas brutas: ${allRowsData.length}`);
+  console.log(`Linhas válidas da tabela principal: ${validRowsData.length}`);
+  console.log(`Linhas descartadas (fim da tabela): ${allRowsData.length - validTableEnd}`);
 
-  for (const rowData of allRowsData) {
+  for (let i = 0; i < validRowsData.length; i++) {
+    const rowData = validRowsData[i];
+    
     if (!rowData || rowData.every(cell => cell === null || cell === undefined || cell === '')) {
       continue; // Pula linhas totalmente vazias
     }
 
     const row: ProjectRow = {};
     headers.forEach((header, index) => {
-      if (header) { // Ignora colunas sem cabeçalho
+      if (header && header.trim() !== '') { // Ignora colunas sem cabeçalho
+        const value = rowData[index];
+        row[header] = parseNumericValue(value, header);
+      }
+    });
+
+    // Encontra as chaves 'ITEM' e 'DESCRIÇÃO' de forma case-insensitive
+    const itemKey = Object.keys(row).find(key => key.toUpperCase().includes('ITEM'));
+    const descricaoKey = Object.keys(row).find(key => key.toUpperCase().includes('DESCRIÇÃO') || key.toUpperCase().includes('DESCRICAO'));
+    
+    // Inclui a linha se:
+    // 1. Tem ITEM válido (não vazio), OU
+    // 2. Tem DESCRIÇÃO válida (não vazia) mesmo que ITEM seja nulo
+    const hasValidItem = itemKey && row[itemKey] && String(row[itemKey]).trim() !== '';
+    const hasValidDescricao = descricaoKey && row[descricaoKey] && String(row[descricaoKey]).trim() !== '';
+    
+    if (hasValidItem || hasValidDescricao) {
+      console.log(`Linha ${i + 1} incluída: ITEM="${row[itemKey] || 'N/A'}" DESCRIÇÃO="${(row[descricaoKey] || '').substring(0, 30)}..."`);
+      rows.push(row);
+    } else {
+      console.log(`Linha ${i + 1} descartada: sem ITEM nem DESCRIÇÃO válidos`);
+    }
+  }
+  
+  console.log(`Total de linhas processadas: ${rows.length}`);
+  return rows;
+};
+
+/**
+ * Detecta onde termina a tabela principal baseado em padrões do arquivo
+ */
+const findTableEnd = (allRowsData: any[][], headers: string[]): number => {
+  for (let i = 0; i < allRowsData.length; i++) {
+    const rowData = allRowsData[i];
+    
+    if (!rowData) continue;
+    
+    // Converte a linha para objeto para facilitar análise
+    const row: any = {};
+    headers.forEach((header, index) => {
+      if (header) {
         const value = rowData[index];
         row[header] = value !== null && value !== undefined ? String(value).trim() : '';
       }
     });
-
-    // Encontra a chave 'ITEM' de forma case-insensitive
-    const itemKey = Object.keys(row).find(key => key.toUpperCase() === REQUIRED_COLUMN_NAME);
     
-    // Filtra a linha se o valor da coluna 'ITEM' for válido
-    if (itemKey && row[itemKey] && String(row[itemKey]).trim() !== '') {
-      rows.push(row);
+    // Procura por padrões que indicam fim da tabela principal
+    const rowText = Object.values(row).join(' ').toLowerCase();
+    
+    // Se encontrar texto indicativo de totais, administração, ou resumos
+    if (rowText.includes('cc mo total:') || 
+        rowText.includes('administração') || 
+        rowText.includes('administracao') ||
+        rowText.includes('total:') ||
+        rowText.includes('despesas operacionais') ||
+        rowText.includes('frete estimado') ||
+        rowText.includes('seguro caução') ||
+        rowText.includes('disputa:')) {
+      console.log(`Fim da tabela principal detectado na linha ${i + 1}: "${rowText.substring(0, 50)}..."`);
+      return i;
+    }
+    
+    // Se a linha tem apenas valores em poucas colunas e parece ser resumo/total
+    const nonEmptyValues = Object.values(row).filter(v => v && String(v).trim() !== '').length;
+    if (nonEmptyValues <= 2 && i > 10) { // Após linha 10 e com poucos valores
+      const itemKey = Object.keys(row).find(key => key.toUpperCase().includes('ITEM'));
+      const descricaoKey = Object.keys(row).find(key => key.toUpperCase().includes('DESCRIÇÃO') || key.toUpperCase().includes('DESCRICAO'));
+      
+      // Se não tem ITEM nem DESCRIÇÃO válidos após linha 10
+      if ((!itemKey || !row[itemKey]) && (!descricaoKey || !row[descricaoKey])) {
+        console.log(`Possível fim da tabela na linha ${i + 1} (poucos valores e sem ITEM/DESCRIÇÃO)`);
+        return i;
+      }
     }
   }
-  return rows;
+  
+  console.log('Fim da tabela não detectado automaticamente, usando todas as linhas');
+  return allRowsData.length;
 };
 
 // -----------------------------------------------------
@@ -101,20 +251,61 @@ export const useProjectImport = () => {
   };
 
   const parseXLSX = async (file: File): Promise<ProjectData> => {
-    const data = await readFileAs(file, 'arrayBuffer');
-    const workbook = XLSX.read(data, { type: 'array' });
-    const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+    const data = await readFileAs(file, 'arrayBuffer');
+    const workbook = XLSX.read(data, { type: 'array' });
+    const worksheet = workbook.Sheets[workbook.SheetNames[0]];
   
-    const jsonData = XLSX.utils.sheet_to_json<any[]>(worksheet, { header: 1, defval: '', blankrows: false });
-    if (jsonData.length < 2) throw new Error('XLSX precisa de cabeçalho e pelo menos uma linha de dados.');
-    
-    // ✅ CORREÇÃO: Remova o .filter() daqui para manter os índices alinhados.
-    const headers = jsonData[0].map(h => String(h).trim());
+    // Usar blankrows: true para manter linhas vazias e defval: null para detectar células vazias
+    const jsonData = XLSX.utils.sheet_to_json<any[]>(worksheet, { 
+      header: 1, 
+      defval: null, 
+      blankrows: true,
+      raw: false // Garante que valores sejam convertidos para string quando apropriado
+    });
+    
+    if (jsonData.length < 2) throw new Error('XLSX precisa de cabeçalho e pelo menos uma linha de dados.');
+    
+    console.log('=== PARSE XLSX ===');
+    console.log(`Total de linhas brutas do Excel: ${jsonData.length}`);
+    console.log(`Primeira linha (headers): ${JSON.stringify(jsonData[0])}`);
+    
+    // Processar headers - garantir que todas as colunas sejam capturadas
+    const rawHeaders = jsonData[0] || [];
+    
+    // Encontrar a maior linha para determinar o número máximo de colunas
+    const maxColumns = Math.max(...jsonData.map(row => row ? row.length : 0));
+    console.log(`Número máximo de colunas detectado: ${maxColumns}`);
+    
+    // Expandir headers para cobrir todas as colunas
+    const headers: string[] = [];
+    for (let i = 0; i < maxColumns; i++) {
+      const headerValue = rawHeaders[i];
+      if (headerValue !== null && headerValue !== undefined && String(headerValue).trim() !== '') {
+        headers[i] = String(headerValue).trim();
+      } else {
+        // Para colunas sem cabeçalho, criar um nome genérico
+        headers[i] = `Coluna_${i + 1}`;
+      }
+    }
+    
+    console.log(`Headers processados (${headers.length}): ${JSON.stringify(headers)}`);
+    
+    // Normalizar todas as linhas para ter o mesmo número de colunas
+    const allRowsData = jsonData.slice(1).map(row => {
+      const normalizedRow = new Array(maxColumns).fill(null);
+      if (row) {
+        for (let i = 0; i < Math.min(row.length, maxColumns); i++) {
+          normalizedRow[i] = row[i];
+        }
+      }
+      return normalizedRow;
+    });
+    
+    console.log(`Linhas de dados normalizadas: ${allRowsData.length}`);
+    
+    const rows = processAndFilterRows(allRowsData, headers);
   
-    const allRowsData = jsonData.slice(1);
-    const rows = processAndFilterRows(allRowsData, headers);
-  
-    return { headers, rows };
+    return { headers, rows };
   };
 
   const importProjects = async (file: File): Promise<ProjectData> => {

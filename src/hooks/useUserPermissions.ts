@@ -135,12 +135,13 @@ export const useUserPermissions = (projectId?: string) => {
   };
 
   const canEditColumn = (columnKey: string): boolean => {
-    const permission = permissions.columnPermissions[columnKey];
-    
-    // Administradores sempre podem editar
+    // Administradores sempre podem editar TODAS as colunas
     if (permissions.role === 'admin' || permissions.projectRole === 'admin') {
+      console.log(`Admin access granted for column ${columnKey}`);
       return true;
     }
+    
+    const permission = permissions.columnPermissions[columnKey];
     
     // Se não há permissão definida, pode editar por padrão se for colaborador
     if (permission === undefined) {
